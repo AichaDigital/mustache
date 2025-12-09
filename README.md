@@ -1,68 +1,176 @@
-# :package_description
+# Laravel Mustache Resolver
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/:vendor_slug/:package_slug/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/:vendor_slug/:package_slug/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-<!--delete-->
----
-This repo can be used to scaffold a Laravel package. Follow these steps to get started:
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/aichadigital/laravel-mustache-resolver/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/aichadigital/laravel-mustache-resolver/actions?query=workflow%3Arun-tests+branch%3Amain)
+[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/aichadigital/laravel-mustache-resolver/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/aichadigital/laravel-mustache-resolver/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
+[![Total Downloads](https://img.shields.io/packagist/dt/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
 
-1. Press the "Use this template" button at the top of this repo to create a new repo with the contents of this skeleton.
-2. Run "php ./configure.php" to run a script that will replace all placeholders throughout all the files.
-3. Have fun creating your package.
-4. If you need help creating a package, consider picking up our <a href="https://laravelpackage.training">Laravel Package Training</a> video course.
----
-<!--/delete-->
-This is where your description should go. Limit it to a paragraph or two. Consider adding a small example.
+A framework-agnostic, fully testable, SOLID-compliant mustache template resolver for PHP applications with first-class Laravel integration.
 
-## Support us
+## Features
 
-[<img src="https://github-ads.s3.eu-central-1.amazonaws.com/:package_name.jpg?t=1" width="419px" />](https://spatie.be/github-ad-click/:package_name)
+- **Simple field resolution**: `{{User.name}}`
+- **Relation navigation**: `{{User.department.manager.name}}`
+- **Dynamic fields**: `{{Device.$manufacturer.field_parameter}}`
+- **Collection access**: `{{User.posts.0.title}}`, `{{User.addresses.*.city}}`
+- **Built-in functions**: `{{now()}}`, `{{format(User.date, 'Y-m-d')}}`
+- **Null coalescing**: `{{User.nickname ?? 'Anonymous'}}`
+- **Framework-agnostic core** with optional Laravel integration
+- **100% testable** without database
 
-We invest a lot of resources into creating [best in class open source packages](https://spatie.be/open-source). You can support us by [buying one of our paid products](https://spatie.be/open-source/support-us).
+## Requirements
 
-We highly appreciate you sending us a postcard from your hometown, mentioning which of our package(s) you are using. You'll find our address on [our contact page](https://spatie.be/about-us). We publish all received postcards on [our virtual postcard wall](https://spatie.be/open-source/postcards).
+- PHP 8.2+
+- Laravel 10.x, 11.x, or 12.x (optional)
 
 ## Installation
 
-You can install the package via composer:
-
 ```bash
-composer require :vendor_slug/:package_slug
+composer require aichadigital/laravel-mustache-resolver
 ```
 
-You can publish and run the migrations with:
+### Laravel
+
+The package auto-discovers the service provider. Optionally publish the config:
 
 ```bash
-php artisan vendor:publish --tag=":package_slug-migrations"
-php artisan migrate
+php artisan vendor:publish --tag="mustache-resolver-config"
 ```
 
-You can publish the config file with:
-
-```bash
-php artisan vendor:publish --tag=":package_slug-config"
-```
-
-This is the contents of the published config file:
+### Standalone (without Laravel)
 
 ```php
-return [
-];
-```
+use AichaDigital\MustacheResolver\Core\MustacheResolver;
+use AichaDigital\MustacheResolver\Core\Parser\MustacheParser;
+use AichaDigital\MustacheResolver\Core\Pipeline\PipelineBuilder;
+use AichaDigital\MustacheResolver\Cache\NullCache;
 
-Optionally, you can publish the views using
-
-```bash
-php artisan vendor:publish --tag=":package_slug-views"
+$resolver = new MustacheResolver(
+    new MustacheParser(),
+    PipelineBuilder::create()->build(),
+    new NullCache()
+);
 ```
 
 ## Usage
 
+### Basic Usage with Laravel Facade
+
 ```php
-$variable = new VendorName\Skeleton();
-echo $variable->echoPhrase('Hello, VendorName!');
+use AichaDigital\MustacheResolver\Laravel\Facades\Mustache;
+
+$template = "Hello, {{User.name}}! Your email is {{User.email}}.";
+$user = User::find(1);
+
+$result = Mustache::translate($template, $user);
+
+if ($result->isSuccess()) {
+    echo $result->getTranslated();
+    // "Hello, John! Your email is john@example.com."
+}
+```
+
+### Relation Navigation
+
+```php
+$template = "Manager: {{User.department.manager.name}}";
+$result = Mustache::translate($template, $user);
+```
+
+### Collection Access
+
+```php
+// Access by index
+$template = "First post: {{User.posts.0.title}}";
+
+// Access first/last
+$template = "Latest: {{User.posts.last.title}}";
+
+// Wildcard (returns array)
+$template = "All cities: {{User.addresses.*.city}}";
+```
+
+### With Variables
+
+```php
+$template = "Report for {{$period}}: {{User.name}}";
+$result = Mustache::translate($template, $user, ['period' => '2024-Q1']);
+```
+
+### Batch Processing
+
+```php
+$templates = [
+    "Name: {{User.name}}",
+    "Email: {{User.email}}",
+    "Department: {{User.department.name}}",
+];
+
+$results = Mustache::translateBatch($templates, $user);
+```
+
+### Non-strict Mode
+
+```php
+// Missing fields return empty string instead of failing
+$result = Mustache::translate($template, $user, [], strict: false);
+```
+
+## Configuration
+
+```php
+// config/mustache-resolver.php
+return [
+    'strict' => true,           // Throw on unresolvable mustaches
+    'keep_unresolved' => false, // Keep mustaches if not resolved (non-strict)
+
+    'cache' => [
+        'enabled' => false,
+        'ttl' => 3600,
+    ],
+
+    'security' => [
+        'max_depth' => 10,
+        'blacklisted_attributes' => ['password', 'remember_token'],
+    ],
+];
+```
+
+## Custom Resolvers
+
+```php
+use AichaDigital\MustacheResolver\Contracts\ResolverInterface;
+
+class CustomResolver implements ResolverInterface
+{
+    public function supports(TokenInterface $token, ContextInterface $context): bool
+    {
+        return $token->getPrefix() === 'Custom';
+    }
+
+    public function resolve(TokenInterface $token, ContextInterface $context): mixed
+    {
+        // Your resolution logic
+    }
+
+    public function priority(): int
+    {
+        return 150; // Higher than built-in resolvers
+    }
+
+    public function name(): string
+    {
+        return 'custom';
+    }
+}
+```
+
+Register in config:
+
+```php
+'resolvers' => [
+    \App\Resolvers\CustomResolver::class,
+],
 ```
 
 ## Testing
@@ -85,9 +193,9 @@ Please review [our security policy](../../security/policy) on how to report secu
 
 ## Credits
 
-- [:author_name](https://github.com/:author_username)
+- [AichaDigital](https://github.com/AichaDigital)
 - [All Contributors](../../contributors)
 
 ## License
 
-The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
+The AGPL-3.0-or-later License. Please see [License File](LICENSE) for more information.

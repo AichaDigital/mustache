@@ -1,48 +1,51 @@
 {
-    "name": ":vendor_slug/:package_slug",
-    "description": ":package_description",
+    "name": "aichadigital/laravel-mustache-resolver",
+    "description": "Framework-agnostic, fully testable, SOLID-compliant mustache template resolver for PHP applications with first-class Laravel integration",
     "keywords": [
-        ":vendor_name",
+        "aichadigital",
         "laravel",
-        ":package_slug"
+        "mustache",
+        "template",
+        "resolver",
+        "eloquent",
+        "placeholders"
     ],
-    "homepage": "https://github.com/:vendor_slug/:package_slug",
-    "license": "MIT",
+    "homepage": "https://github.com/AichaDigital/laravel-mustache-resolver",
+    "license": "AGPL-3.0-or-later",
     "authors": [
         {
-            "name": ":author_name",
-            "email": "author@domain.com",
+            "name": "AichaDigital",
+            "email": "dev@aichadigital.com",
             "role": "Developer"
         }
     ],
     "require": {
-        "php": "^8.4",
-        "spatie/laravel-package-tools": "^1.16",
-        "illuminate/contracts": "^11.0||^12.0"
+        "php": "^8.2",
+        "illuminate/contracts": "^10.0||^11.0||^12.0",
+        "illuminate/support": "^10.0||^11.0||^12.0"
     },
     "require-dev": {
         "laravel/pint": "^1.14",
-        "nunomaduro/collision": "^8.8",
-        "larastan/larastan": "^3.0",
-        "orchestra/testbench": "^10.0.0||^9.0.0",
-        "pestphp/pest": "^4.0",
-        "pestphp/pest-plugin-arch": "^4.0",
-        "pestphp/pest-plugin-laravel": "^4.0",
+        "nunomaduro/collision": "^7.0||^8.0",
+        "larastan/larastan": "^2.0||^3.0",
+        "orchestra/testbench": "^8.0||^9.0||^10.0",
+        "pestphp/pest": "^2.0||^3.0",
+        "pestphp/pest-plugin-arch": "^2.0||^3.0",
+        "pestphp/pest-plugin-laravel": "^2.0||^3.0",
         "phpstan/extension-installer": "^1.4",
-        "phpstan/phpstan-deprecation-rules": "^2.0",
-        "phpstan/phpstan-phpunit": "^2.0",
-        "spatie/laravel-ray": "^1.35"
+        "phpstan/phpstan-deprecation-rules": "^1.0||^2.0",
+        "phpstan/phpstan-phpunit": "^1.0||^2.0"
     },
     "autoload": {
         "psr-4": {
-            "VendorName\\Skeleton\\": "src/",
-            "VendorName\\Skeleton\\Database\\Factories\\": "database/factories/"
+            "AichaDigital\\MustacheResolver\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "VendorName\\Skeleton\\Tests\\": "tests/",
-            "Workbench\\App\\": "workbench/app/"
+            "AichaDigital\\MustacheResolver\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/",
+            "Workbench\\Database\\Factories\\": "workbench/database/factories/"
         }
     },
     "scripts": {
@@ -63,13 +66,13 @@
     "extra": {
         "laravel": {
             "providers": [
-                "VendorName\\Skeleton\\SkeletonServiceProvider"
+                "AichaDigital\\MustacheResolver\\Laravel\\MustacheServiceProvider"
             ],
             "aliases": {
-                "Skeleton": "VendorName\\Skeleton\\Facades\\Skeleton"
+                "Mustache": "AichaDigital\\MustacheResolver\\Laravel\\Facades\\Mustache"
             }
         }
     },
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "prefer-stable": true
 }
