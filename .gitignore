@@ -28,8 +28,11 @@ _ide_helper_models.php
 phpunit.xml
 phpstan.neon
 testbench.yaml
-/docs
 /coverage
+
+# Private docs (work in progress, proposals, etc.)
+/docs/work-in-progress
+
 # IDE/AI tools
 .claude/
 .cursor/
