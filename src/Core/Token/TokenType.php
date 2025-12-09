@@ -74,6 +74,34 @@ enum TokenType: string
     case UNKNOWN = 'unknown';
 
     /**
+     * Compound expression with USE clause.
+     * Example: USE {var} => {{expr}} > 0 && SELECT ...
+     * Detected by: Starts with "USE "
+     */
+    case COMPOUND = 'compound';
+
+    /**
+     * USE clause variable declaration.
+     * Example: {var} => {{expr}} > 0
+     * Internal use during compound parsing
+     */
+    case USE_DECLARATION = 'use_declaration';
+
+    /**
+     * Local variable reference (single braces).
+     * Example: {max_power} in statement part
+     * Detected by: Single braces {var}
+     */
+    case LOCAL_VARIABLE = 'local_variable';
+
+    /**
+     * Formatter function call.
+     * Example: toTimeString({{timestamp}} + 180)
+     * Detected by: Known formatter name with parentheses
+     */
+    case FORMATTER = 'formatter';
+
+    /**
      * Check if this type requires a data accessor.
      */
     public function requiresAccessor(): bool
@@ -120,6 +148,24 @@ enum TokenType: string
             self::NULL_COALESCE => 'Null coalesce expression',
             self::LITERAL => 'Literal value',
             self::UNKNOWN => 'Unknown token type',
+            self::COMPOUND => 'Compound expression with USE clause',
+            self::USE_DECLARATION => 'USE clause variable declaration',
+            self::LOCAL_VARIABLE => 'Local variable reference',
+            self::FORMATTER => 'Formatter function call',
+        };
+    }
+
+    /**
+     * Check if this type is part of compound expression system.
+     */
+    public function isCompoundRelated(): bool
+    {
+        return match ($this) {
+            self::COMPOUND,
+            self::USE_DECLARATION,
+            self::LOCAL_VARIABLE,
+            self::FORMATTER => true,
+            default => false,
         };
     }
 }

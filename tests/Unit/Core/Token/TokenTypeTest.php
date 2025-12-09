@@ -6,7 +6,7 @@ use AichaDigital\MustacheResolver\Core\Token\TokenType;
 
 describe('TokenType', function () {
     it('has expected cases', function () {
-        expect(TokenType::cases())->toHaveCount(11);
+        expect(TokenType::cases())->toHaveCount(15);
     });
 
     it('can determine if accessor is required', function () {
@@ -20,6 +20,8 @@ describe('TokenType', function () {
         expect(TokenType::VARIABLE->requiresAccessor())->toBeFalse();
         expect(TokenType::MATH->requiresAccessor())->toBeFalse();
         expect(TokenType::LITERAL->requiresAccessor())->toBeFalse();
+        expect(TokenType::COMPOUND->requiresAccessor())->toBeFalse();
+        expect(TokenType::LOCAL_VARIABLE->requiresAccessor())->toBeFalse();
     });
 
     it('can determine if nesting is supported', function () {
@@ -28,6 +30,7 @@ describe('TokenType', function () {
 
         expect(TokenType::FUNCTION->supportsNesting())->toBeFalse();
         expect(TokenType::VARIABLE->supportsNesting())->toBeFalse();
+        expect(TokenType::COMPOUND->supportsNesting())->toBeFalse();
     });
 
     it('provides descriptions for all types', function () {
@@ -48,5 +51,20 @@ describe('TokenType', function () {
         expect(TokenType::NULL_COALESCE->value)->toBe('null_coalesce');
         expect(TokenType::LITERAL->value)->toBe('literal');
         expect(TokenType::UNKNOWN->value)->toBe('unknown');
+        expect(TokenType::COMPOUND->value)->toBe('compound');
+        expect(TokenType::USE_DECLARATION->value)->toBe('use_declaration');
+        expect(TokenType::LOCAL_VARIABLE->value)->toBe('local_variable');
+        expect(TokenType::FORMATTER->value)->toBe('formatter');
+    });
+
+    it('can determine if type is compound related', function () {
+        expect(TokenType::COMPOUND->isCompoundRelated())->toBeTrue();
+        expect(TokenType::USE_DECLARATION->isCompoundRelated())->toBeTrue();
+        expect(TokenType::LOCAL_VARIABLE->isCompoundRelated())->toBeTrue();
+        expect(TokenType::FORMATTER->isCompoundRelated())->toBeTrue();
+
+        expect(TokenType::MODEL->isCompoundRelated())->toBeFalse();
+        expect(TokenType::FUNCTION->isCompoundRelated())->toBeFalse();
+        expect(TokenType::VARIABLE->isCompoundRelated())->toBeFalse();
     });
 });
