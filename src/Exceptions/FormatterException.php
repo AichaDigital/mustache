@@ -11,7 +11,7 @@ final class FormatterException extends ResolutionException
 {
     public function __construct(
         private readonly string $formatterName,
-        private readonly mixed $inputValue,
+        private readonly mixed $inputValue = null,
         private readonly ?string $reason = null,
     ) {
         $message = sprintf(
@@ -25,6 +25,57 @@ final class FormatterException extends ResolutionException
         }
 
         parent::__construct($message);
+    }
+
+    /**
+     * Create exception for a formatter not in the allowed list.
+     *
+     * @param  array<string>  $allowedNames
+     */
+    public static function notAllowed(string $name, array $allowedNames): self
+    {
+        $instance = new self(
+            $name,
+            null,
+            sprintf(
+                'Formatter is not in the allowed list. Allowed formatters: %s',
+                implode(', ', $allowedNames),
+            ),
+        );
+
+        return $instance;
+    }
+
+    /**
+     * Create exception for a formatter not registered.
+     */
+    public static function notRegistered(string $name): self
+    {
+        return new self(
+            $name,
+            null,
+            'Formatter is not registered. Use FormatterRegistry::register() first.',
+        );
+    }
+
+    /**
+     * Create exception for unsupported value type.
+     */
+    public static function unsupportedType(string $name, string $type): self
+    {
+        return new self(
+            $name,
+            null,
+            sprintf('Formatter does not support values of type "%s"', $type),
+        );
+    }
+
+    /**
+     * Create exception for formatting failure.
+     */
+    public static function formattingFailed(string $name, string $errorMessage): self
+    {
+        return new self($name, null, $errorMessage);
     }
 
     /**
