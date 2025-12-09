@@ -1,9 +1,13 @@
 # Laravel Mustache Resolver
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/aichadigital/laravel-mustache-resolver/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/aichadigital/laravel-mustache-resolver/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/aichadigital/laravel-mustache-resolver/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/aichadigital/laravel-mustache-resolver/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
+[![Tests](https://img.shields.io/github/actions/workflow/status/AichaDigital/mustache/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/AichaDigital/mustache/actions?query=workflow%3ATests+branch%3Amain)
+[![Code Style](https://img.shields.io/github/actions/workflow/status/AichaDigital/mustache/code-style.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/AichaDigital/mustache/actions?query=workflow%3A"Code+Style"+branch%3Amain)
+[![PHPStan](https://img.shields.io/github/actions/workflow/status/AichaDigital/mustache/phpstan.yml?branch=main&label=phpstan&style=flat-square)](https://github.com/AichaDigital/mustache/actions?query=workflow%3APHPStan+branch%3Amain)
 [![Total Downloads](https://img.shields.io/packagist/dt/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+[![PHP Version](https://img.shields.io/packagist/php-v/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+[![Laravel Version](https://img.shields.io/badge/laravel-10.x%20|%2011.x%20|%2012.x-red?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+[![License](https://img.shields.io/packagist/l/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
 
 A framework-agnostic, fully testable, SOLID-compliant mustache template resolver for PHP applications with first-class Laravel integration.
 

@@ -10,7 +10,7 @@
         "eloquent",
         "placeholders"
     ],
-    "homepage": "https://github.com/AichaDigital/laravel-mustache-resolver",
+    "homepage": "https://github.com/AichaDigital/mustache",
     "license": "AGPL-3.0-or-later",
     "authors": [
         {

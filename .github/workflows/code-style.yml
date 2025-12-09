@@ -1,4 +1,4 @@
-name: PHPStan
+name: Code Style
 
 on:
   push:
@@ -7,10 +7,10 @@ on:
     branches: [main]
 
 jobs:
-  phpstan:
+  pint:
     runs-on: ubuntu-latest
 
-    name: Static Analysis
+    name: PHP Code Style
 
     steps:
       - name: Checkout code
@@ -26,5 +26,5 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction
 
-      - name: Run PHPStan
-        run: vendor/bin/phpstan analyse --error-format=github
+      - name: Check code style
+        run: vendor/bin/pint --test
