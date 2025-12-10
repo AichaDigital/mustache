@@ -36,3 +36,4 @@ testbench.yaml
 # IDE/AI tools
 .claude/
 .cursor/
+build/

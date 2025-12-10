@@ -9,21 +9,21 @@ use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
 use Workbench\App\Models\Department;
 use Workbench\App\Models\User;
 
+beforeEach(function () {
+    $this->user = User::factory()->create([
+        'name' => 'John Doe',
+        'email' => 'john@example.com',
+    ]);
+
+    $this->department = Department::factory()->create([
+        'name' => 'Engineering',
+    ]);
+
+    $this->user->department()->associate($this->department);
+    $this->user->save();
+});
+
 describe('Model Security', function () {
-    beforeEach(function () {
-        $this->user = User::factory()->create([
-            'name' => 'John Doe',
-            'email' => 'john@example.com',
-        ]);
-
-        $this->department = Department::factory()->create([
-            'name' => 'Engineering',
-        ]);
-
-        $this->user->department()->associate($this->department);
-        $this->user->save();
-    });
-
     describe('allowed_models validation', function () {
         it('allows access when model is in allowed list', function () {
             $config = ['allowed_models' => ['User']];

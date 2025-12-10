@@ -26,6 +26,11 @@ final class TokenClassifier
             return $this->createNullCoalesceToken($raw);
         }
 
+        // Check for temporal expression (TEMPORAL:, NOW:, TODAY:)
+        if ($this->isTemporal($raw)) {
+            return $this->createTemporalToken($raw);
+        }
+
         // Check for function call
         if ($this->isFunction($raw)) {
             return $this->createFunctionToken($raw);
@@ -123,6 +128,79 @@ final class TokenClassifier
             type: TokenType::MATH,
             path: [],
             metadata: ['expression' => $raw],
+        );
+    }
+
+    private function isTemporal(string $raw): bool
+    {
+        return str_starts_with($raw, 'TEMPORAL:')
+            || str_starts_with($raw, 'NOW:')
+            || str_starts_with($raw, 'NOW')
+            || str_starts_with($raw, 'TODAY:')
+            || str_starts_with($raw, 'TODAY');
+    }
+
+    private function createTemporalToken(string $raw): Token
+    {
+        // Determine the temporal type and extract the expression
+        $temporalType = 'unknown';
+        $expression = '';
+        $functionName = null;
+        $functionArgs = [];
+
+        if (str_starts_with($raw, 'TEMPORAL:')) {
+            $temporalType = 'temporal';
+            $rest = substr($raw, 9); // Remove 'TEMPORAL:'
+
+            // Parse function call: isDue('weekday && 08:00-18:00')
+            if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/s', $rest, $matches)) {
+                $functionName = $matches[1];
+                $expression = trim($matches[2], " \t\n\r\0\x0B'\"");
+                $functionArgs = [$expression];
+            } else {
+                $expression = $rest;
+            }
+        } elseif (str_starts_with($raw, 'NOW:')) {
+            $temporalType = 'now';
+            $rest = substr($raw, 4); // Remove 'NOW:'
+
+            // Parse format or property: format('Y-m-d') or timestamp
+            if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/s', $rest, $matches)) {
+                $functionName = $matches[1];
+                $expression = trim($matches[2], " \t\n\r\0\x0B'\"");
+                $functionArgs = [$expression];
+            } else {
+                $functionName = $rest;
+            }
+        } elseif ($raw === 'NOW') {
+            $temporalType = 'now';
+            $functionName = 'default';
+        } elseif (str_starts_with($raw, 'TODAY:')) {
+            $temporalType = 'today';
+            $rest = substr($raw, 6); // Remove 'TODAY:'
+
+            if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/s', $rest, $matches)) {
+                $functionName = $matches[1];
+                $expression = trim($matches[2], " \t\n\r\0\x0B'\"");
+                $functionArgs = [$expression];
+            } else {
+                $functionName = $rest;
+            }
+        } elseif ($raw === 'TODAY') {
+            $temporalType = 'today';
+            $functionName = 'default';
+        }
+
+        return Token::create(
+            raw: $raw,
+            type: TokenType::TEMPORAL,
+            path: [],
+            functionName: $functionName,
+            functionArgs: $functionArgs,
+            metadata: [
+                'temporal_type' => $temporalType,
+                'expression' => $expression,
+            ],
         );
     }
 

@@ -102,6 +102,15 @@ enum TokenType: string
     case FORMATTER = 'formatter';
 
     /**
+     * Temporal expression.
+     * Example: {{TEMPORAL:isDue('weekday && 08:00-18:00')}}
+     * Example: {{NOW:format('Y-m-d')}}
+     * Example: {{TODAY:startOfDay}}
+     * Detected by: TEMPORAL:, NOW:, or TODAY: prefix
+     */
+    case TEMPORAL = 'temporal';
+
+    /**
      * Check if this type requires a data accessor.
      */
     public function requiresAccessor(): bool
@@ -152,6 +161,7 @@ enum TokenType: string
             self::USE_DECLARATION => 'USE clause variable declaration',
             self::LOCAL_VARIABLE => 'Local variable reference',
             self::FORMATTER => 'Formatter function call',
+            self::TEMPORAL => 'Temporal expression',
         };
     }
 
