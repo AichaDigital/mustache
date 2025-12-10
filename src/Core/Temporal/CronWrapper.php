@@ -17,7 +17,7 @@ use InvalidArgumentException;
  */
 final readonly class CronWrapper
 {
-    private const array DAY_MAP = [
+    private const DAY_MAP = [
         'sunday' => 0,
         'monday' => 1,
         'tuesday' => 2,

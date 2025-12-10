@@ -22,15 +22,15 @@ use AichaDigital\MustacheResolver\Exceptions\InvalidSyntaxException;
  */
 final class ExpressionParser
 {
-    private const string TOKEN_AND = '&&';
+    private const TOKEN_AND = '&&';
 
-    private const string TOKEN_OR = '||';
+    private const TOKEN_OR = '||';
 
-    private const string TOKEN_NOT = '!';
+    private const TOKEN_NOT = '!';
 
-    private const string TOKEN_LPAREN = '(';
+    private const TOKEN_LPAREN = '(';
 
-    private const string TOKEN_RPAREN = ')';
+    private const TOKEN_RPAREN = ')';
 
     private string $expression;
 

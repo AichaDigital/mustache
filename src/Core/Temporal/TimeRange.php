@@ -16,9 +16,9 @@ use DateTimeInterface;
  */
 final readonly class TimeRange implements TimeRangeInterface
 {
-    private const string TIME_PATTERN = '/^([01]?[0-9]|2[0-3]):([0-5][0-9])$/';
+    private const TIME_PATTERN = '/^([01]?[0-9]|2[0-3]):([0-5][0-9])$/';
 
-    private const string RANGE_PATTERN = '/^([01]?[0-9]|2[0-3]):([0-5][0-9])-([01]?[0-9]|2[0-3]):([0-5][0-9])$/';
+    private const RANGE_PATTERN = '/^([01]?[0-9]|2[0-3]):([0-5][0-9])-([01]?[0-9]|2[0-3]):([0-5][0-9])$/';
 
     private int $startMinutes;
 
