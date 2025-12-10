@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AichaDigital\MustacheResolver\Accessors;
 
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
+use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -19,10 +20,19 @@ final readonly class EloquentAccessor implements DataAccessorInterface
 {
     public function __construct(
         private Model $model,
-    ) {}
+        private ?SecurityValidator $securityValidator = null,
+    ) {
+        $this->securityValidator?->validateModel(get_class($this->model));
+    }
 
     public function get(string $path): mixed
     {
+        // Check if first segment is blacklisted
+        $firstSegment = explode('.', $path)[0];
+        if ($this->securityValidator?->isAttributeBlacklisted($firstSegment)) {
+            return null;
+        }
+
         return data_get($this->model, $path);
     }
 

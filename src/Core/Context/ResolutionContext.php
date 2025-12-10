@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace AichaDigital\MustacheResolver\Core\Context;
 
 use AichaDigital\MustacheResolver\Accessors\ArrayAccessor;
+use AichaDigital\MustacheResolver\Accessors\EloquentAccessor;
 use AichaDigital\MustacheResolver\Contracts\ContextInterface;
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
+use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Immutable context for resolution operations.
@@ -41,6 +44,28 @@ final readonly class ResolutionContext implements ContextInterface
     public static function fromArray(array $data): self
     {
         return new self(new ArrayAccessor($data));
+    }
+
+    /**
+     * Create context from an Eloquent model with security validation.
+     *
+     * @param  array<string, mixed>  $securityConfig
+     */
+    public static function fromModel(Model $model, array $securityConfig = []): self
+    {
+        $validator = null;
+
+        if (! empty($securityConfig)) {
+            $validator = new SecurityValidator(
+                allowedModels: $securityConfig['allowed_models'] ?? [],
+                blacklistedAttributes: $securityConfig['blacklisted_attributes'] ?? [],
+                maxDepth: $securityConfig['max_depth'] ?? 10,
+            );
+        }
+
+        $accessor = new EloquentAccessor($model, $validator);
+
+        return new self($accessor, [], true, null, $securityConfig);
     }
 
     public function get(string $key): mixed
