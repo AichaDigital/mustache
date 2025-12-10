@@ -21,13 +21,15 @@
     ],
     "require": {
         "php": "^8.2",
+        "dragonmantank/cron-expression": "^3.4",
         "illuminate/contracts": "^10.0||^11.0||^12.0",
         "illuminate/support": "^10.0||^11.0||^12.0"
     },
     "require-dev": {
+        "infection/infection": "^0.31.9",
+        "larastan/larastan": "^2.0||^3.0",
         "laravel/pint": "^1.14",
         "nunomaduro/collision": "^7.0||^8.0",
-        "larastan/larastan": "^2.0||^3.0",
         "orchestra/testbench": "^8.0||^9.0||^10.0",
         "pestphp/pest": "^2.0||^3.0",
         "pestphp/pest-plugin-arch": "^2.0||^3.0",
@@ -53,14 +55,24 @@
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse",
         "test": "vendor/bin/pest",
-        "test-coverage": "vendor/bin/pest --coverage",
-        "format": "vendor/bin/pint"
+        "test-coverage": "vendor/bin/pest --coverage --min=90",
+        "test-coverage-html": "XDEBUG_MODE=coverage vendor/bin/pest --coverage-html build/coverage",
+        "test-coverage-clover": "XDEBUG_MODE=coverage vendor/bin/pest --coverage-clover build/coverage.xml",
+        "mutate": "XDEBUG_MODE=coverage vendor/bin/infection --threads=4 --show-mutations",
+        "mutate-ci": "XDEBUG_MODE=coverage vendor/bin/infection --threads=4 --logger-github --min-msi=80 --min-covered-msi=85",
+        "format": "vendor/bin/pint",
+        "quality": [
+            "@format",
+            "@analyse",
+            "@test-coverage"
+        ]
     },
     "config": {
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true,
-            "phpstan/extension-installer": true
+            "phpstan/extension-installer": true,
+            "infection/extension-installer": true
         }
     },
     "extra": {

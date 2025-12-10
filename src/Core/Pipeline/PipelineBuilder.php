@@ -11,6 +11,7 @@ use AichaDigital\MustacheResolver\Resolvers\ModelResolver;
 use AichaDigital\MustacheResolver\Resolvers\NullCoalesceResolver;
 use AichaDigital\MustacheResolver\Resolvers\RelationResolver;
 use AichaDigital\MustacheResolver\Resolvers\TableResolver;
+use AichaDigital\MustacheResolver\Resolvers\TemporalResolver;
 use AichaDigital\MustacheResolver\Resolvers\VariableResolver;
 
 /**
@@ -107,6 +108,7 @@ final class PipelineBuilder
     private function getDefaultResolvers(): array
     {
         return [
+            new TemporalResolver,       // Priority 90 - TEMPORAL:, NOW:, TODAY:
             new NullCoalesceResolver,   // Priority 90 - Handle ?? first
             new VariableResolver,       // Priority 60 - $variables
             new DynamicFieldResolver,   // Priority 50 - $relation.field

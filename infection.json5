@@ -1,0 +1,28 @@
+{
+    "$schema": "https://raw.githubusercontent.com/infection/infection/0.27.0/resources/schema.json",
+    "source": {
+        "directories": [
+            "src"
+        ],
+        "excludes": [
+            "Laravel/Facades",
+            "Laravel/MustacheServiceProvider.php"
+        ]
+    },
+    "timeout": 30,
+    "logs": {
+        "text": "build/infection.log",
+        "html": "build/infection.html",
+        "summary": "build/infection-summary.log"
+    },
+    "mutators": {
+        "@default": true,
+        // Disable some mutators that create false positives
+        "CastString": false,
+        "UnwrapStrToLower": false
+    },
+    "minMsi": 80,
+    "minCoveredMsi": 85,
+    "testFramework": "phpunit",
+    "testFrameworkOptions": "--colors=always"
+}

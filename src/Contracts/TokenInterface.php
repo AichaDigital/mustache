@@ -62,4 +62,11 @@ interface TokenInterface
      * Get default value if token has null coalesce.
      */
     public function getDefaultValue(): ?string;
+
+    /**
+     * Get additional metadata attached to the token.
+     *
+     * @return array<string, mixed>
+     */
+    public function getMetadata(): array;
 }

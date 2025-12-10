@@ -6,7 +6,7 @@ use AichaDigital\MustacheResolver\Core\Token\TokenType;
 
 describe('TokenType', function () {
     it('has expected cases', function () {
-        expect(TokenType::cases())->toHaveCount(15);
+        expect(TokenType::cases())->toHaveCount(16);
     });
 
     it('can determine if accessor is required', function () {
@@ -55,6 +55,7 @@ describe('TokenType', function () {
         expect(TokenType::USE_DECLARATION->value)->toBe('use_declaration');
         expect(TokenType::LOCAL_VARIABLE->value)->toBe('local_variable');
         expect(TokenType::FORMATTER->value)->toBe('formatter');
+        expect(TokenType::TEMPORAL->value)->toBe('temporal');
     });
 
     it('can determine if type is compound related', function () {
