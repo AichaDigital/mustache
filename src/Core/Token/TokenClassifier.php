@@ -152,11 +152,13 @@ final class TokenClassifier
             $temporalType = 'temporal';
             $rest = substr($raw, 9); // Remove 'TEMPORAL:'
 
-            // Parse function call: isDue('weekday && 08:00-18:00')
+            // Parse function call: isDue('weekday && 08:00-18:00') or isNthWeekday('saturday', 1)
             if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/s', $rest, $matches)) {
                 $functionName = $matches[1];
-                $expression = trim($matches[2], " \t\n\r\0\x0B'\"");
-                $functionArgs = [$expression];
+                $argsString = trim($matches[2]);
+                $functionArgs = $this->parseFunctionArgs($argsString);
+                // First argument is typically the expression for isDue/nextRun/previousRun
+                $expression = (string) ($functionArgs[0] ?? '');
             } else {
                 $expression = $rest;
             }
@@ -167,8 +169,9 @@ final class TokenClassifier
             // Parse format or property: format('Y-m-d') or timestamp
             if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/s', $rest, $matches)) {
                 $functionName = $matches[1];
-                $expression = trim($matches[2], " \t\n\r\0\x0B'\"");
-                $functionArgs = [$expression];
+                $argsString = trim($matches[2]);
+                $functionArgs = $this->parseFunctionArgs($argsString);
+                $expression = (string) ($functionArgs[0] ?? '');
             } else {
                 $functionName = $rest;
             }
@@ -181,8 +184,9 @@ final class TokenClassifier
 
             if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/s', $rest, $matches)) {
                 $functionName = $matches[1];
-                $expression = trim($matches[2], " \t\n\r\0\x0B'\"");
-                $functionArgs = [$expression];
+                $argsString = trim($matches[2]);
+                $functionArgs = $this->parseFunctionArgs($argsString);
+                $expression = (string) ($functionArgs[0] ?? '');
             } else {
                 $functionName = $rest;
             }

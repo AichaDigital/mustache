@@ -142,31 +142,35 @@ describe('TemporalResolver → TEMPORAL:previousRun', function () {
 });
 
 describe('TemporalResolver → TEMPORAL:isNthWeekday', function () {
-    it('resolves isNthWeekday correctly', function () {
+    it('resolves isNthWeekday correctly using classifier', function () {
         Carbon::setTestNow('2025-12-06 10:00:00'); // First Saturday
-        $token = Token::create(
-            raw: "TEMPORAL:isNthWeekday('saturday', 1)",
-            type: TokenType::TEMPORAL,
-            path: [],
-            functionName: 'isNthWeekday',
-            functionArgs: ['saturday', 1],
-            metadata: ['temporal_type' => 'temporal', 'expression' => '']
-        );
+        $token = $this->classifier->classify("TEMPORAL:isNthWeekday('saturday', 1)");
 
         $result = $this->resolver->resolve($token, $this->context);
 
         expect($result)->toBeTrue();
     });
 
+    it('resolves isNthWeekday with second occurrence', function () {
+        Carbon::setTestNow('2025-12-13 10:00:00'); // Second Saturday
+        $token = $this->classifier->classify("TEMPORAL:isNthWeekday('saturday', 2)");
+
+        $result = $this->resolver->resolve($token, $this->context);
+
+        expect($result)->toBeTrue();
+    });
+
+    it('returns false when not matching nth weekday', function () {
+        Carbon::setTestNow('2025-12-10 10:00:00'); // Wednesday
+        $token = $this->classifier->classify("TEMPORAL:isNthWeekday('saturday', 1)");
+
+        $result = $this->resolver->resolve($token, $this->context);
+
+        expect($result)->toBeFalse();
+    });
+
     it('throws on isNthWeekday with insufficient args', function () {
-        $token = Token::create(
-            raw: "TEMPORAL:isNthWeekday('saturday')",
-            type: TokenType::TEMPORAL,
-            path: [],
-            functionName: 'isNthWeekday',
-            functionArgs: ['saturday'],
-            metadata: ['temporal_type' => 'temporal', 'expression' => '']
-        );
+        $token = $this->classifier->classify("TEMPORAL:isNthWeekday('saturday')");
 
         expect(fn () => $this->resolver->resolve($token, $this->context))
             ->toThrow(ResolutionException::class, 'isNthWeekday requires 2 arguments');
@@ -174,31 +178,35 @@ describe('TemporalResolver → TEMPORAL:isNthWeekday', function () {
 });
 
 describe('TemporalResolver → TEMPORAL:isLastWeekday', function () {
-    it('resolves isLastWeekday correctly', function () {
+    it('resolves isLastWeekday correctly using classifier', function () {
         Carbon::setTestNow('2025-12-27 10:00:00'); // Last Saturday of December
-        $token = Token::create(
-            raw: "TEMPORAL:isLastWeekday('saturday')",
-            type: TokenType::TEMPORAL,
-            path: [],
-            functionName: 'isLastWeekday',
-            functionArgs: ['saturday'],
-            metadata: ['temporal_type' => 'temporal', 'expression' => '']
-        );
+        $token = $this->classifier->classify("TEMPORAL:isLastWeekday('saturday')");
 
         $result = $this->resolver->resolve($token, $this->context);
 
         expect($result)->toBeTrue();
     });
 
+    it('resolves isLastWeekday for friday', function () {
+        Carbon::setTestNow('2025-12-26 10:00:00'); // Last Friday of December
+        $token = $this->classifier->classify("TEMPORAL:isLastWeekday('friday')");
+
+        $result = $this->resolver->resolve($token, $this->context);
+
+        expect($result)->toBeTrue();
+    });
+
+    it('returns false when not last weekday', function () {
+        Carbon::setTestNow('2025-12-06 10:00:00'); // First Saturday (not last)
+        $token = $this->classifier->classify("TEMPORAL:isLastWeekday('saturday')");
+
+        $result = $this->resolver->resolve($token, $this->context);
+
+        expect($result)->toBeFalse();
+    });
+
     it('throws on isLastWeekday with no args', function () {
-        $token = Token::create(
-            raw: 'TEMPORAL:isLastWeekday()',
-            type: TokenType::TEMPORAL,
-            path: [],
-            functionName: 'isLastWeekday',
-            functionArgs: [],
-            metadata: ['temporal_type' => 'temporal', 'expression' => '']
-        );
+        $token = $this->classifier->classify('TEMPORAL:isLastWeekday()');
 
         expect(fn () => $this->resolver->resolve($token, $this->context))
             ->toThrow(ResolutionException::class, 'isLastWeekday requires 1 argument');
@@ -207,20 +215,14 @@ describe('TemporalResolver → TEMPORAL:isLastWeekday', function () {
 
 describe('TemporalResolver → Unknown functions', function () {
     it('throws on unknown TEMPORAL function', function () {
-        $token = Token::create(
-            raw: "TEMPORAL:unknownFunc('test')",
-            type: TokenType::TEMPORAL,
-            path: [],
-            functionName: 'unknownFunc',
-            functionArgs: ['test'],
-            metadata: ['temporal_type' => 'temporal', 'expression' => '']
-        );
+        $token = $this->classifier->classify("TEMPORAL:unknownFunc('test')");
 
         expect(fn () => $this->resolver->resolve($token, $this->context))
             ->toThrow(ResolutionException::class, 'Unknown TEMPORAL function');
     });
 
     it('throws on unknown temporal type', function () {
+        // This requires manual token creation as classifier won't produce invalid temporal_type
         $token = Token::create(
             raw: 'UNKNOWN:test',
             type: TokenType::TEMPORAL,
