@@ -226,3 +226,65 @@ describe('Temporal Integration → ISO Formats', function () {
         expect($result->getTranslated())->toContain('2025-12-10T14:30:00');
     });
 });
+
+describe('Temporal Integration → isNthWeekday and isLastWeekday', function () {
+    it('resolves TEMPORAL:isNthWeekday in template', function () {
+        Carbon::setTestNow('2025-12-06 10:00:00'); // First Saturday of December
+        $resolver = createResolver();
+
+        $result = $resolver->translate("Is first Saturday: {{TEMPORAL:isNthWeekday('saturday', 1)}}", []);
+
+        expect($result->isSuccess())->toBeTrue();
+        expect($result->getTranslated())->toContain('true');
+    });
+
+    it('resolves TEMPORAL:isNthWeekday with second occurrence', function () {
+        Carbon::setTestNow('2025-12-13 10:00:00'); // Second Saturday of December
+        $resolver = createResolver();
+
+        $result = $resolver->translate("Is second Saturday: {{TEMPORAL:isNthWeekday('saturday', 2)}}", []);
+
+        expect($result->isSuccess())->toBeTrue();
+        expect($result->getTranslated())->toContain('true');
+    });
+
+    it('resolves TEMPORAL:isNthWeekday returns false when not matching', function () {
+        Carbon::setTestNow('2025-12-10 10:00:00'); // Wednesday
+        $resolver = createResolver();
+
+        $result = $resolver->translate("Is first Saturday: {{TEMPORAL:isNthWeekday('saturday', 1)}}", []);
+
+        expect($result->isSuccess())->toBeTrue();
+        expect($result->getTranslated())->toContain('false');
+    });
+
+    it('resolves TEMPORAL:isLastWeekday in template', function () {
+        Carbon::setTestNow('2025-12-27 10:00:00'); // Last Saturday of December
+        $resolver = createResolver();
+
+        $result = $resolver->translate("Is last Saturday: {{TEMPORAL:isLastWeekday('saturday')}}", []);
+
+        expect($result->isSuccess())->toBeTrue();
+        expect($result->getTranslated())->toContain('true');
+    });
+
+    it('resolves TEMPORAL:isLastWeekday returns false when not last', function () {
+        Carbon::setTestNow('2025-12-06 10:00:00'); // First Saturday (not last)
+        $resolver = createResolver();
+
+        $result = $resolver->translate("Is last Saturday: {{TEMPORAL:isLastWeekday('saturday')}}", []);
+
+        expect($result->isSuccess())->toBeTrue();
+        expect($result->getTranslated())->toContain('false');
+    });
+
+    it('resolves TEMPORAL:isLastWeekday for friday', function () {
+        Carbon::setTestNow('2025-12-26 10:00:00'); // Last Friday of December
+        $resolver = createResolver();
+
+        $result = $resolver->translate("Is last Friday: {{TEMPORAL:isLastWeekday('friday')}}", []);
+
+        expect($result->isSuccess())->toBeTrue();
+        expect($result->getTranslated())->toContain('true');
+    });
+});

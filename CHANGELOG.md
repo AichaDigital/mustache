@@ -2,6 +2,20 @@
 
 All notable changes to `aichadigital/laravel-mustache-resolver` will be documented in this file.
 
+## [1.1.1] - 2025-12-12
+
+### Fixed
+
+- Fixed `TokenClassifier` parsing of multiple arguments in TEMPORAL tokens
+  - `TEMPORAL:isNthWeekday('saturday', 1)` now correctly parses to `['saturday', 1]`
+  - `TEMPORAL:isLastWeekday('friday')` now correctly parses to `['friday']`
+  - Previously, all arguments were incorrectly captured as a single string
+
+### Changed
+
+- Updated tests to use real `TokenClassifier` instead of manually created tokens for `isNthWeekday` and `isLastWeekday`
+- Added comprehensive integration tests for temporal argument parsing
+
 ## [1.1.0] - 2025-12-10
 
 ### Added

@@ -185,3 +185,99 @@ describe('TokenClassifier → Math tokens', function () {
         expect($token->getType())->toBe(TokenType::MATH);
     });
 });
+
+describe('TokenClassifier → Temporal tokens', function () {
+    it('classifies TEMPORAL:isDue with single expression argument', function () {
+        $token = $this->classifier->classify("TEMPORAL:isDue('weekday && 08:00-18:00')");
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('isDue');
+        expect($token->getFunctionArgs())->toBe(['weekday && 08:00-18:00']);
+    });
+
+    it('classifies TEMPORAL:isNthWeekday with multiple arguments', function () {
+        $token = $this->classifier->classify("TEMPORAL:isNthWeekday('saturday', 1)");
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('isNthWeekday');
+        expect($token->getFunctionArgs())->toBe(['saturday', 1]);
+    });
+
+    it('classifies TEMPORAL:isNthWeekday with second occurrence', function () {
+        $token = $this->classifier->classify("TEMPORAL:isNthWeekday('friday', 2)");
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('isNthWeekday');
+        expect($token->getFunctionArgs())->toBe(['friday', 2]);
+    });
+
+    it('classifies TEMPORAL:isLastWeekday with single argument', function () {
+        $token = $this->classifier->classify("TEMPORAL:isLastWeekday('saturday')");
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('isLastWeekday');
+        expect($token->getFunctionArgs())->toBe(['saturday']);
+    });
+
+    it('classifies NOW', function () {
+        $token = $this->classifier->classify('NOW');
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('default');
+    });
+
+    it('classifies NOW:format with argument', function () {
+        $token = $this->classifier->classify("NOW:format('Y-m-d')");
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('format');
+        expect($token->getFunctionArgs())->toBe(['Y-m-d']);
+    });
+
+    it('classifies NOW:timestamp', function () {
+        $token = $this->classifier->classify('NOW:timestamp');
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('timestamp');
+    });
+
+    it('classifies TODAY', function () {
+        $token = $this->classifier->classify('TODAY');
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('default');
+    });
+
+    it('classifies TODAY:startOfDay', function () {
+        $token = $this->classifier->classify('TODAY:startOfDay');
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('startOfDay');
+    });
+
+    it('classifies TODAY:format with argument', function () {
+        $token = $this->classifier->classify("TODAY:format('d/m/Y')");
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('format');
+        expect($token->getFunctionArgs())->toBe(['d/m/Y']);
+    });
+
+    it('classifies TEMPORAL:nextRun with cron argument', function () {
+        $token = $this->classifier->classify("TEMPORAL:nextRun('cron:0 8 * * *')");
+
+        expect($token->getType())->toBe(TokenType::TEMPORAL);
+        expect($token->getFunctionName())->toBe('nextRun');
+        expect($token->getFunctionArgs())->toBe(['cron:0 8 * * *']);
+    });
+
+    it('stores temporal type in metadata', function () {
+        $temporal = $this->classifier->classify("TEMPORAL:isDue('weekday')");
+        $now = $this->classifier->classify('NOW');
+        $today = $this->classifier->classify('TODAY');
+
+        expect($temporal->getMetadata()['temporal_type'])->toBe('temporal');
+        expect($now->getMetadata()['temporal_type'])->toBe('now');
+        expect($today->getMetadata()['temporal_type'])->toBe('today');
+    });
+});
