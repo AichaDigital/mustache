@@ -9,6 +9,7 @@ use AichaDigital\MustacheResolver\Contracts\TokenInterface;
 use AichaDigital\MustacheResolver\Core\Token\TokenType;
 use ArrayAccess;
 use Countable;
+use Illuminate\Support\Collection;
 
 /**
  * Resolves collection access patterns.
@@ -126,7 +127,7 @@ final class CollectionResolver extends AbstractResolver
             return $collection[array_key_first($collection)] ?? null;
         }
 
-        if ($collection instanceof \Illuminate\Support\Collection) {
+        if ($collection instanceof Collection) {
             return $collection->first();
         }
 
@@ -148,7 +149,7 @@ final class CollectionResolver extends AbstractResolver
             return $collection[array_key_last($collection)] ?? null;
         }
 
-        if ($collection instanceof \Illuminate\Support\Collection) {
+        if ($collection instanceof Collection) {
             return $collection->last();
         }
 
@@ -183,7 +184,7 @@ final class CollectionResolver extends AbstractResolver
             return $collection[$index] ?? null;
         }
 
-        if ($collection instanceof \Illuminate\Support\Collection) {
+        if ($collection instanceof Collection) {
             return $collection->get($index);
         }
 

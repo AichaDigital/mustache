@@ -2,6 +2,19 @@
 
 All notable changes to `aichadigital/laravel-mustache-resolver` will be documented in this file.
 
+## [1.2.0] - 2026-04-08
+
+### Changed
+
+- Applied Pint formatting across codebase (strict types, spacing, imports)
+- Reorganized project documentation structure
+
+### Note
+
+- **This is the last release supporting Laravel 10.x and 11.x.**
+- Future v2.x releases will require Laravel 12+.
+- The v1.x branch will only receive critical security fixes.
+
 ## [1.1.1] - 2025-12-12
 
 ### Fixed

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AichaDigital\MustacheResolver\Laravel\Facades;
 
+use AichaDigital\MustacheResolver\Core\MustacheResolver;
 use Illuminate\Support\Facades\Facade;
 
 /**
@@ -12,7 +13,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array<int, \AichaDigital\MustacheResolver\Contracts\TokenInterface> parse(string $template)
  * @method static bool hasMustaches(string $template)
  *
- * @see \AichaDigital\MustacheResolver\Core\MustacheResolver
+ * @see MustacheResolver
  */
 class Mustache extends Facade
 {

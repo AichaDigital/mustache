@@ -23,6 +23,15 @@ A framework-agnostic, fully testable, SOLID-compliant mustache template resolver
 - **Framework-agnostic core** with optional Laravel integration
 - **100% testable** without database
 
+## Compatibility
+
+| Package version | PHP      | Laravel         | Status                     |
+|-----------------|----------|-----------------|----------------------------|
+| 1.x             | 8.2, 8.3, 8.4 | 10.x, 11.x, 12.x | Security fixes only        |
+| 2.x (upcoming)  | 8.2+     | 12.x            | Active development         |
+
+> **v1.2.0 is the last release supporting Laravel 10 and 11.** Future development continues on v2.x (Laravel 12+ only). The v1.x branch will only receive critical security fixes.
+
 ## Requirements
 
 - PHP 8.2+

@@ -35,3 +35,4 @@ testbench.yaml
 
 # IDE/AI tools
 build/
+.claude/

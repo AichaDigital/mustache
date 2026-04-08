@@ -55,6 +55,7 @@
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse",
         "test": "vendor/bin/pest",
+        "pint": "vendor/bin/pint",
         "test-coverage": "vendor/bin/pest --coverage --min=90",
         "test-coverage-html": "XDEBUG_MODE=coverage vendor/bin/pest --coverage-html build/coverage",
         "test-coverage-clover": "XDEBUG_MODE=coverage vendor/bin/pest --coverage-clover build/coverage.xml",
