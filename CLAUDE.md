@@ -10,7 +10,7 @@ Framework-agnostic, fully testable, SOLID-compliant mustache template resolver f
 - **Namespace**: AichaDigital\MustacheResolver
 - **License**: AGPL-3.0-or-later
 - **PHP**: ^8.2
-- **Laravel**: ^10.0 || ^11.0 || ^12.0
+- **Laravel**: ^12.0 || ^13.0
 
 ## Code Standards
 

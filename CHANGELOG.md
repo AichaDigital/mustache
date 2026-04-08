@@ -2,6 +2,21 @@
 
 All notable changes to `aichadigital/laravel-mustache-resolver` will be documented in this file.
 
+## [2.0.0] - 2026-04-08
+
+### Breaking
+
+- Dropped Laravel 10.x and 11.x support
+- Removed multi-version dev dependency constraints (larastan 2.x, collision 7.x, testbench 8.x/9.x, pest 2.x)
+
+### Added
+
+- Laravel 13.x support
+
+### Changed
+
+- Updated CI matrix to PHP 8.2/8.3/8.4 with Laravel 12/13
+
 ## [1.2.0] - 2026-04-08
 
 ### Changed
