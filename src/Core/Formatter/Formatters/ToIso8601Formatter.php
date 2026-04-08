@@ -25,7 +25,7 @@ final class ToIso8601Formatter extends AbstractFormatter
     {
         $dateTime = $this->toDateTime($value);
 
-        return $dateTime->format(\DateTimeInterface::ATOM);
+        return $dateTime->format(DateTimeInterface::ATOM);
     }
 
     private function toDateTime(mixed $value): \DateTimeImmutable

@@ -9,6 +9,7 @@ use AichaDigital\MustacheResolver\Contracts\ContextInterface;
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
 use AichaDigital\MustacheResolver\Contracts\ParserInterface;
 use AichaDigital\MustacheResolver\Contracts\ResultInterface;
+use AichaDigital\MustacheResolver\Contracts\TokenInterface;
 use AichaDigital\MustacheResolver\Core\Context\ResolutionContext;
 use AichaDigital\MustacheResolver\Core\Pipeline\ResolutionPipeline;
 use AichaDigital\MustacheResolver\Core\Result\TranslationResult;
@@ -114,7 +115,7 @@ final class MustacheResolver
     /**
      * Parse a template and return the tokens without resolving.
      *
-     * @return \AichaDigital\MustacheResolver\Contracts\TokenInterface[]
+     * @return TokenInterface[]
      */
     public function parse(string $template): array
     {
