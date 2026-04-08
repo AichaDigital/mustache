@@ -7,7 +7,7 @@
 [![PHPStan](https://img.shields.io/github/actions/workflow/status/AichaDigital/mustache/phpstan.yml?branch=main&label=phpstan&style=flat-square)](https://github.com/AichaDigital/mustache/actions?query=workflow%3APHPStan+branch%3Amain)
 [![Total Downloads](https://img.shields.io/packagist/dt/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
 [![PHP Version](https://img.shields.io/packagist/php-v/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
-[![Laravel Version](https://img.shields.io/badge/laravel-10.x%20|%2011.x%20|%2012.x-red?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+[![Laravel Version](https://img.shields.io/badge/laravel-12.x%20|%2013.x-red?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
 [![License](https://img.shields.io/packagist/l/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
 
 A framework-agnostic, fully testable, SOLID-compliant mustache template resolver for PHP applications with first-class Laravel integration.
@@ -25,17 +25,15 @@ A framework-agnostic, fully testable, SOLID-compliant mustache template resolver
 
 ## Compatibility
 
-| Package version | PHP      | Laravel         | Status                     |
-|-----------------|----------|-----------------|----------------------------|
-| 1.x             | 8.2, 8.3, 8.4 | 10.x, 11.x, 12.x | Security fixes only        |
-| 2.x (upcoming)  | 8.2+     | 12.x            | Active development         |
-
-> **v1.2.0 is the last release supporting Laravel 10 and 11.** Future development continues on v2.x (Laravel 12+ only). The v1.x branch will only receive critical security fixes.
+| Package version | PHP            | Laravel        | Status              |
+|-----------------|----------------|----------------|---------------------|
+| 2.x             | 8.2, 8.3, 8.4 | 12.x, 13.x    | Active development  |
+| 1.x             | 8.2, 8.3, 8.4 | 10.x, 11.x, 12.x | Security fixes only |
 
 ## Requirements
 
 - PHP 8.2+
-- Laravel 10.x, 11.x, or 12.x (optional)
+- Laravel 12.x or 13.x (optional)
 
 ## Installation
 
