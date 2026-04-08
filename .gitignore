@@ -34,6 +34,4 @@ testbench.yaml
 /docs/work-in-progress
 
 # IDE/AI tools
-.claude/
-.cursor/
 build/
