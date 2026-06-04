@@ -6,5 +6,12 @@
     ":timezone(Europe/Madrid)",
     ":semanticCommits"
   ],
-  "schedule": ["before 10am on monday"]
+  "schedule": ["before 10am on monday"],
+  "packageRules": [
+    {
+      "description": "Pin infection to the PHP 8.2-compatible 0.31.x line until PHP 8.2 reaches end of security support (2026-12-31). infection 0.32.7+ and 0.33+ require PHP ^8.3, which would drop our supported 8.2 matrix.",
+      "matchPackageNames": ["infection/infection"],
+      "allowedVersions": "<0.32"
+    }
+  ]
 }
