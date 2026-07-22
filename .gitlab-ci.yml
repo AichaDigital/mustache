@@ -1,0 +1,146 @@
+# CI de aichadigital/laravel-mustache-resolver en GitLab self-hosted
+# (ADE-295 — Fase 3). Traducción de .github/workflows/{tests,phpstan,code-style,
+# coverage}.yml.
+# Runner: aichadigital-runner01 (VM 891 en prohe03), tags [aichadigital, docker].
+# El runner es opt-in (run_untagged=false): sin estos tags no se ejecuta nada.
+#
+# El repo se llama `mustache`; el paquete, `aichadigital/laravel-mustache-resolver`.
+#
+# Este paquete tiene el suelo de PHP más bajo de la umbrela (`php: ^8.2`), así que
+# la matriz cubre 8.2, 8.3 y 8.4 — y por eso existe el tag `aichadigital/laravel-ci:8.2`.
+# Probar solo las versiones altas dejaría sin red a un consumidor en 8.2 con el
+# pipeline igual de verde.
+#
+# La combinación 8.2 + Laravel 13 está EXCLUIDA, como en el original: Laravel 13
+# no soporta 8.2. Son 5 jobs, no 6.
+#
+# Diferencias con otros paquetes de la umbrela, para quien venga de leerlos:
+#
+#   - `code-style.yml` aquí YA era `pint --test` (verifica, no reescribe), así que
+#     no hay ningún cambio de comportamiento que anunciar — al contrario que en
+#     laratickets y lararoi, cuyo workflow commiteaba las correcciones.
+#   - `composer test-coverage` declara `--min=90`, pero el workflow de cobertura
+#     NO lo usaba: llamaba a Pest directamente sin mínimo. Se conserva sin gate.
+#     Añadirlo sería inventar un umbral que nunca se aplicó.
+#   - `composer mutate-ci` (Infection, `--min-msi=80`) existe pero NINGÚN workflow
+#     lo ejecutaba. No se traduce: no se puede perder lo que no corría.
+#
+# NO traducido: los filtros `paths:` (optimización de coste, no gate).
+
+stages:
+  - quality
+  - test
+
+default:
+  tags:
+    - aichadigital
+    - docker
+  interruptible: true
+  timeout: 20 minutes
+
+variables:
+  COMPOSER_CACHE_DIR: "$CI_PROJECT_DIR/.composer-cache"
+  COMPOSER_ALLOW_SUPERUSER: "1"
+  COMPOSER_PROCESS_TIMEOUT: "0"
+  GIT_DEPTH: "20"
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Paquete: sin composer.lock versionado → `composer update`, como en GitHub.
+.php:
+  before_script:
+    - php -v | head -1
+    - composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+  cache:
+    key: "composer-php${PHP_VERSION}-l${LARAVEL}"
+    paths:
+      - .composer-cache/
+
+# --- Stage: quality -----------------------------------------------------------
+
+manifest:
+  stage: quality
+  image: aichadigital/laravel-ci:8.3
+  script:
+    - composer validate --strict --no-interaction
+
+pint:
+  stage: quality
+  image: aichadigital/laravel-ci:8.3
+  variables:
+    PHP_VERSION: "8.3"
+  extends: .php
+  script:
+    # `vendor/bin/pint --test`, no `composer pint`/`composer format`: esos dos
+    # apuntan a Pint en modo escritura, que en CI reformatea y reporta éxito.
+    - ./vendor/bin/pint --test
+
+phpstan:
+  stage: quality
+  image: aichadigital/laravel-ci:8.3
+  variables:
+    PHP_VERSION: "8.3"
+  extends: .php
+  script:
+    # Sin `--error-format=github`: aquí produciría anotaciones que nadie lee.
+    - composer analyse
+
+# --- Stage: test --------------------------------------------------------------
+
+pest:
+  stage: test
+  image: aichadigital/laravel-ci:$PHP_VERSION
+  parallel:
+    matrix:
+      # Laravel 12 admite 8.2; Laravel 13 no — de ahí el exclude del original,
+      # que aquí se expresa simplemente no listando esa combinación.
+      - PHP_VERSION: ["8.2", "8.3", "8.4"]
+        LARAVEL: "12.*"
+        TESTBENCH: "10.*"
+      - PHP_VERSION: ["8.3", "8.4"]
+        LARAVEL: "13.*"
+        TESTBENCH: "11.*"
+  cache:
+    key: "composer-php${PHP_VERSION}-l${LARAVEL}"
+    paths:
+      - .composer-cache/
+  before_script:
+    - php -v | head -1
+    - composer require "laravel/framework:${LARAVEL}" "orchestra/testbench:${TESTBENCH}" --no-interaction --no-update
+    - composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+    - composer show -D
+  script:
+    - ./vendor/bin/pest --no-coverage
+
+# Cobertura SIN gate, fiel al original: el workflow llamaba a Pest sin `--min`
+# y subía a Codecov con el resultado. Codecov se retira en favor de la cobertura
+# nativa de GitLab (una dependencia externa menos, motivo de ADE-291).
+#
+# `XDEBUG_MODE=coverage` del original no se traslada: es una variable de Xdebug y
+# la imagen compartida trae PCOV. Lo que sí es obligatorio es ASERTAR el driver —
+# un informe de cobertura sin driver no falla: mide cero y reporta éxito.
+coverage:
+  stage: test
+  image: aichadigital/laravel-ci:8.3
+  variables:
+    PHP_VERSION: "8.3"
+  extends: .php
+  script:
+    - echo 'pcov.enabled=1' > /usr/local/etc/php/conf.d/zz-pcov-on.ini
+    - |
+      if ! php -r 'exit(ini_get("pcov.enabled") ? 0 : 1);'; then
+        echo "PCOV no se activó — la cobertura mediría cero y reportaría éxito"
+        exit 1
+      fi
+    - ./vendor/bin/pest --coverage --coverage-clover build/coverage.xml
+  # Sin ancla `^`: Pest emite "<ESC>[1mTotal: NN.N %<ESC>[22m" (lección de
+  # lara-content, 2026-07-22).
+  coverage: '/Total:\s*(\d+\.\d+)\s*%/'
+  artifacts:
+    when: always
+    paths:
+      - build/coverage.xml
+    expire_in: 1 week
