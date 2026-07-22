@@ -1,4 +1,20 @@
 # Laravel Mustache Resolver
+<!-- AI-BADGES:START profile=essential -->
+[![Latest Version](https://img.shields.io/packagist/v/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+[![Total Downloads](https://img.shields.io/packagist/dt/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+[![Pipeline](https://gitlab.castris.com/aichadigital/mustache/badges/main/pipeline.svg?style=flat-square)](https://gitlab.castris.com/aichadigital/mustache/-/pipelines)
+[![Coverage](https://gitlab.castris.com/aichadigital/mustache/badges/main/coverage.svg?style=flat-square)](https://gitlab.castris.com/aichadigital/mustache/-/pipelines)
+[![PHPStan level 8](https://img.shields.io/badge/PHPStan-level%208-brightgreen.svg?style=flat-square&logo=php)](https://phpstan.org/)
+[![PHP Version](https://img.shields.io/packagist/php-v/aichadigital/laravel-mustache-resolver.svg?style=flat-square&logo=php)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+[![Laravel Version](https://img.shields.io/badge/Laravel-12.x%20%7C%2013.x-red.svg?style=flat-square&logo=laravel)](https://laravel.com)
+[![License](https://img.shields.io/packagist/l/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
+<!-- AI-BADGES:END -->
+
+> Development happens on
+> [gitlab.castris.com](https://gitlab.castris.com/aichadigital/mustache).
+> The GitHub repository is a read-only distribution mirror: issues and pull
+> requests opened there are not seen.
+
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
 [![Tests](https://img.shields.io/github/actions/workflow/status/AichaDigital/mustache/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/AichaDigital/mustache/actions?query=workflow%3ATests+branch%3Amain)
