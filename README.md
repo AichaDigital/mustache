@@ -147,11 +147,39 @@ return [
     ],
 
     'security' => [
+        'mode' => 'report',     // 'off' | 'report' | 'enforce'
         'max_depth' => 10,
         'blacklisted_attributes' => ['password', 'remember_token'],
     ],
 ];
 ```
+
+## Security
+
+The service provider builds a `SecurityValidator` from `config('mustache-resolver.security')`
+and applies it to every resolution path, both for Eloquent models and array data.
+Every segment of a dot-notation path is checked against `blacklisted_attributes`, so a
+blacklisted attribute is also blocked behind a relation (`{{User.relationship.password}}`),
+and paths deeper than `max_depth` are rejected.
+
+The `security.mode` setting controls what happens on a violation:
+
+- `report` (default): the violation is logged via `Log::warning()` and resolution
+  proceeds. Non-breaking: use it to discover what enforcement would block before
+  upgrading. This will become `enforce` in v3.0.0.
+- `enforce`: violations block the path (resolves to empty) and disallowed models
+  throw `ModelNotAllowedException`. Blocked attempts are also logged, as an audit trail.
+- `off`: no checks are applied.
+
+Blacklist matching is case-insensitive and covers every resolution path, including
+collection tokens (`{{User.posts.*.author.password}}`). Serializing a whole relation
+(`{{User.department}}`) filters blacklisted attributes out of the serialized output
+in `enforce` mode, preserving `escapeWhenCastingToString()`. Resolved arrays and
+collections containing blacklisted attributes are reported in `report` mode (their
+filtering is deferred to v3.0.0). Repeated violations of the same path are logged
+once per request/job cycle. An invalid `security.mode` value fails closed
+(`enforce`) with a warning.
+
 
 ## Custom Resolvers
 

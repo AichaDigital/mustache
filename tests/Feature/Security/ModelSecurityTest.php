@@ -75,11 +75,62 @@ describe('Model Security', function () {
             expect($context->get('id'))->not->toBeNull();
         });
 
-        it('checks only first segment of path', function () {
+        it('checks every segment of the path', function () {
             $config = ['blacklisted_attributes' => ['department']];
             $context = ResolutionContext::fromModel($this->user, ['security' => $config] + $config);
 
             expect($context->get('department.name'))->toBeNull();
+        });
+
+        it('blocks blacklisted attributes behind relations (evasion regression)', function () {
+            $config = ['blacklisted_attributes' => ['name']];
+            $context = ResolutionContext::fromModel($this->user, ['security' => $config] + $config);
+
+            expect($context->get('name'))->toBeNull();
+            // Previously evaded: the blacklist only checked the first segment
+            expect($context->get('department.name'))->toBeNull();
+        });
+
+        it('resolves but reports blacklisted paths in report mode', function () {
+            $reported = [];
+            $config = [
+                'blacklisted_attributes' => ['email'],
+                'mode' => SecurityValidator::MODE_REPORT,
+                'reporter' => function (string $message, array $context = []) use (&$reported) {
+                    $reported[] = ['message' => $message, 'context' => $context];
+                },
+            ];
+            $context = ResolutionContext::fromModel($this->user, $config);
+
+            expect($context->get('email'))->toBe('john@example.com');
+            expect($reported)->toHaveCount(1);
+            expect($reported[0]['context']['path'])->toBe('email');
+        });
+    });
+
+    describe('max_depth', function () {
+        it('blocks paths exceeding max_depth in enforce mode', function () {
+            $config = ['max_depth' => 1];
+            $context = ResolutionContext::fromModel($this->user, ['security' => $config] + $config);
+
+            expect($context->get('name'))->toBe('John Doe');
+            expect($context->get('department.name'))->toBeNull();
+        });
+
+        it('resolves but reports excessive depth in report mode', function () {
+            $reported = [];
+            $config = [
+                'max_depth' => 1,
+                'mode' => SecurityValidator::MODE_REPORT,
+                'reporter' => function (string $message, array $context = []) use (&$reported) {
+                    $reported[] = ['message' => $message, 'context' => $context];
+                },
+            ];
+            $context = ResolutionContext::fromModel($this->user, $config);
+
+            expect($context->get('department.name'))->toBe('Engineering');
+            expect($reported)->toHaveCount(1);
+            expect($reported[0]['message'])->toContain('max_depth');
         });
     });
 
@@ -100,6 +151,18 @@ describe('Model Security', function () {
             $context = ResolutionContext::fromModel($this->user);
 
             expect($context->get('name'))->toBe('John Doe');
+            expect($context->get('email'))->toBe('john@example.com');
+        });
+
+        it('ignores a non-Closure reporter in report mode', function () {
+            $config = [
+                'blacklisted_attributes' => ['email'],
+                'mode' => SecurityValidator::MODE_REPORT,
+                'reporter' => 'not-a-closure',
+            ];
+            $context = ResolutionContext::fromModel($this->user, $config);
+
+            // The invalid reporter is dropped: resolution proceeds without errors
             expect($context->get('email'))->toBe('john@example.com');
         });
     });

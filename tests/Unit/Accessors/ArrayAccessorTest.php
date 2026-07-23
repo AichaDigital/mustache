@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AichaDigital\MustacheResolver\Accessors\ArrayAccessor;
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
+use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 
 describe('ArrayAccessor', function () {
     it('implements DataAccessorInterface', function () {
@@ -58,5 +59,58 @@ describe('ArrayAccessor', function () {
         $accessor = new ArrayAccessor($data);
 
         expect($accessor->getRaw())->toBe($data);
+    });
+
+    describe('with security validator', function () {
+        it('blocks blacklisted attributes in any segment (enforce)', function () {
+            $validator = new SecurityValidator([], ['secret']);
+            $accessor = new ArrayAccessor([
+                'command_center' => ['name' => 'HQ', 'secret' => 's3cr3t'],
+            ], $validator);
+
+            expect($accessor->get('command_center.secret'))->toBeNull();
+            expect($accessor->has('command_center.secret'))->toBeFalse();
+            expect($accessor->get('command_center.name'))->toBe('HQ');
+        });
+
+        it('blocks paths exceeding max_depth (enforce)', function () {
+            $validator = new SecurityValidator([], [], 1);
+            $accessor = new ArrayAccessor(['user' => ['name' => 'John']], $validator);
+
+            expect($accessor->get('user'))->toBe(['name' => 'John']);
+            expect($accessor->get('user.name'))->toBeNull();
+        });
+
+        it('resolves but reports violations in report mode', function () {
+            $reported = [];
+            $validator = new SecurityValidator(
+                [],
+                ['secret'],
+                10,
+                SecurityValidator::MODE_REPORT,
+                function (string $message, array $context = []) use (&$reported) {
+                    $reported[] = $message;
+                },
+            );
+            $accessor = new ArrayAccessor(['api_token' => 'tok'], $validator);
+
+            expect($accessor->get('api_token'))->toBe('tok');
+            // 'secret' is blacklisted, 'api_token' is not: no report expected for this path
+            expect($reported)->toBe([]);
+
+            $validator = new SecurityValidator(
+                [],
+                ['api_token'],
+                10,
+                SecurityValidator::MODE_REPORT,
+                function (string $message, array $context = []) use (&$reported) {
+                    $reported[] = $message;
+                },
+            );
+            $accessor = new ArrayAccessor(['api_token' => 'tok'], $validator);
+
+            expect($accessor->get('api_token'))->toBe('tok');
+            expect($reported)->toHaveCount(1);
+        });
     });
 });

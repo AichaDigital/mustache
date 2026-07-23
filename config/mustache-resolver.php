@@ -96,16 +96,26 @@ return [
     |
     */
     'security' => [
+        // Enforcement mode:
+        // - 'off': no checks are applied
+        // - 'report': violations are logged (Log::warning) but resolution proceeds
+        // - 'enforce': violations block resolution / model access
+        // Default is 'report' (non-breaking). It will change to 'enforce' in v3.0.0.
+        'mode' => env('MUSTACHE_SECURITY_MODE', 'report'),
+
         // Restrict which model classes can be accessed
         'allowed_models' => [], // Empty = all allowed
 
         // Restrict which table names can be accessed
+        // Reserved: currently not enforced. It will take effect (or be removed) in v3.0.0.
         'allowed_tables' => [], // Empty = all allowed
 
         // Maximum nesting depth for relation chains
         'max_depth' => 10,
 
-        // Disallow access to certain attributes/columns
+        // Disallow access to certain attributes/columns.
+        // Every segment of a dot-notation path is checked, so a blacklisted
+        // attribute is also blocked behind a relation (e.g. User.relationship.password).
         'blacklisted_attributes' => [
             'password',
             'remember_token',

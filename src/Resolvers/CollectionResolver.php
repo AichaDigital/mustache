@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AichaDigital\MustacheResolver\Resolvers;
 
 use AichaDigital\MustacheResolver\Contracts\ContextInterface;
+use AichaDigital\MustacheResolver\Contracts\SecurityAwareAccessorInterface;
 use AichaDigital\MustacheResolver\Contracts\TokenInterface;
 use AichaDigital\MustacheResolver\Core\Token\TokenType;
 use ArrayAccess;
@@ -44,7 +45,16 @@ final class CollectionResolver extends AbstractResolver
         }
 
         $fieldPath = $token->getFieldPath();
-        $current = $context->getAccessor()->getRaw();
+        $accessor = $context->getAccessor();
+
+        // Collection navigation bypasses the accessor's get(), so the
+        // security policy (blacklist, max_depth) must be checked up front
+        if ($accessor instanceof SecurityAwareAccessorInterface
+            && ! $accessor->allowsPath(implode('.', $fieldPath))) {
+            return null;
+        }
+
+        $current = $accessor->getRaw();
 
         foreach ($fieldPath as $index => $segment) {
             if ($current === null) {

@@ -2,6 +2,67 @@
 
 All notable changes to `aichadigital/laravel-mustache-resolver` will be documented in this file.
 
+## [2.1.0] - 2026-07-23
+
+Non-breaking security release. It wires the previously inert security configuration
+into the real resolution path in `report` mode by default, so consumers can see in
+their logs exactly what `enforce` mode will block before v3.0.0 flips the default.
+
+### Added
+
+- `security.mode` config option: `off` | `report` (default) | `enforce`
+- The `MustacheServiceProvider` now builds a `SecurityValidator` from
+  `config('mustache-resolver.security')` and injects it into `MustacheResolver`
+- Security checks now apply to the array data path (`ArrayAccessor`), not only to Eloquent models
+- `max_depth` is now enforced on dot-notation paths (previously a dead control)
+- `SecurityValidator::allowsPath()`: blacklist checked on **every** path segment,
+  not just the first one — `blacklisted_attributes` is no longer evadable through
+  relations (`{{User.relationship.password}}`)
+- The blacklist match is now case-insensitive (`{{User.Password}}` no longer
+  bypasses a `password` entry on models with attribute mutators)
+- `SecurityAwareAccessorInterface`: resolvers that navigate data without the
+  accessor's `get()` consult it, closing the collection-token bypass
+  (`{{User.posts.*.author.password}}` was unchecked even in `enforce` mode)
+- `SecurityValidator` reporter hook: violations are sent to `Log::warning()`
+  with the path and offending segments — in `report` mode as a preview of what
+  `enforce` would block, in `enforce` mode as an audit trail of blocked attempts
+- Report dedupe in the service provider: repeated violations of the same path
+  log once per process, so a crafted template cannot flood the logs
+- Whole-model serialization (`{{User.department}}`) no longer leaks blacklisted
+  attributes: `enforce` strips them from the serialized output (recursively),
+  `report` logs a warning and keeps current behavior. The warning/strip only
+  fires when the model actually contains blacklisted attributes, and Eloquent's
+  `escapeWhenCastingToString()` behavior is preserved
+- Container observability in `report` mode: resolved arrays and collections that
+  contain blacklisted attributes log a warning that a future major version will
+  filter them. The output is intentionally unchanged in 2.1
+- Report dedupe state is scoped to the request/job cycle (`terminating` +
+  queue `looping`), so Octane and queue workers no longer accumulate paths or
+  suppress reports across requests
+- An invalid `security.mode` fails closed (`enforce`) with a warning
+- Tests for the Laravel security wiring, the per-segment blacklist, depth limits
+  and the report/enforce modes
+
+### Fixed
+
+- Passing an Eloquent model directly to `Mustache::translate()` now resolves
+  `{{Model.field}}` correctly (previously the model was wrapped in an
+  `ArrayAccessor` under a `model` key and nothing resolved). The documented
+  basic usage in the README now works as written.
+
+### Deprecated / notes
+
+- `allowed_tables` remains unimplemented (reserved); it will take effect or be
+  removed in v3.0.0
+- Passing a raw Eloquent model to `translate()` now expects the documented
+  `{{Model.field}}` syntax; the previous implicit `model` key wrap no longer
+  applies. Consumers passing arrays — including `['model' => $model]` — are
+  unaffected
+- Filtering whole arrays/collections (not just their paths) is deferred to
+  v3.0.0; 2.1 only reports them in `report` mode
+- v3.0.0 will change the default `security.mode` to `enforce`. Run 2.1.x in
+  `report` mode and review the logged warnings before upgrading.
+
 ## [2.0.0] - 2026-04-08
 
 ### Breaking
