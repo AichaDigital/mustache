@@ -15,17 +15,6 @@
 > The GitHub repository is a read-only distribution mirror: issues and pull
 > requests opened there are not seen.
 
-
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
-[![Tests](https://img.shields.io/github/actions/workflow/status/AichaDigital/mustache/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/AichaDigital/mustache/actions?query=workflow%3ATests+branch%3Amain)
-[![Coverage](https://codecov.io/gh/AichaDigital/mustache/graph/badge.svg)](https://codecov.io/gh/AichaDigital/mustache)
-[![Code Style](https://img.shields.io/github/actions/workflow/status/AichaDigital/mustache/code-style.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/AichaDigital/mustache/actions?query=workflow%3A"Code+Style"+branch%3Amain)
-[![PHPStan](https://img.shields.io/github/actions/workflow/status/AichaDigital/mustache/phpstan.yml?branch=main&label=phpstan&style=flat-square)](https://github.com/AichaDigital/mustache/actions?query=workflow%3APHPStan+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
-[![PHP Version](https://img.shields.io/packagist/php-v/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
-[![Laravel Version](https://img.shields.io/badge/laravel-12.x%20|%2013.x-red?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
-[![License](https://img.shields.io/packagist/l/aichadigital/laravel-mustache-resolver.svg?style=flat-square)](https://packagist.org/packages/aichadigital/laravel-mustache-resolver)
-
 A framework-agnostic, fully testable, SOLID-compliant mustache template resolver for PHP applications with first-class Laravel integration.
 
 ## Features
