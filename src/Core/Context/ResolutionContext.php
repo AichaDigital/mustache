@@ -9,6 +9,7 @@ use AichaDigital\MustacheResolver\Accessors\EloquentAccessor;
 use AichaDigital\MustacheResolver\Contracts\ContextInterface;
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
+use Closure;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -41,9 +42,9 @@ final readonly class ResolutionContext implements ContextInterface
      *
      * @param  array<string, mixed>  $data
      */
-    public static function fromArray(array $data): self
+    public static function fromArray(array $data, ?SecurityValidator $securityValidator = null): self
     {
-        return new self(new ArrayAccessor($data));
+        return new self(new ArrayAccessor($data, $securityValidator));
     }
 
     /**
@@ -56,10 +57,18 @@ final readonly class ResolutionContext implements ContextInterface
         $validator = null;
 
         if (! empty($securityConfig)) {
+            /** @var array<string> $allowedModels */
+            $allowedModels = $securityConfig['allowed_models'] ?? [];
+            /** @var array<string> $blacklistedAttributes */
+            $blacklistedAttributes = $securityConfig['blacklisted_attributes'] ?? [];
+            $reporter = $securityConfig['reporter'] ?? null;
+
             $validator = new SecurityValidator(
-                allowedModels: $securityConfig['allowed_models'] ?? [],
-                blacklistedAttributes: $securityConfig['blacklisted_attributes'] ?? [],
-                maxDepth: $securityConfig['max_depth'] ?? 10,
+                allowedModels: $allowedModels,
+                blacklistedAttributes: $blacklistedAttributes,
+                maxDepth: (int) ($securityConfig['max_depth'] ?? 10),
+                mode: (string) ($securityConfig['mode'] ?? SecurityValidator::MODE_ENFORCE),
+                reporter: $reporter instanceof Closure ? $reporter : null,
             );
         }
 

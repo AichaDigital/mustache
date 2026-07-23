@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AichaDigital\MustacheResolver\Core;
 
+use AichaDigital\MustacheResolver\Accessors\EloquentAccessor;
 use AichaDigital\MustacheResolver\Contracts\CacheInterface;
 use AichaDigital\MustacheResolver\Contracts\ContextInterface;
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
@@ -13,7 +14,10 @@ use AichaDigital\MustacheResolver\Contracts\TokenInterface;
 use AichaDigital\MustacheResolver\Core\Context\ResolutionContext;
 use AichaDigital\MustacheResolver\Core\Pipeline\ResolutionPipeline;
 use AichaDigital\MustacheResolver\Core\Result\TranslationResult;
+use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Exceptions\ResolutionException;
+use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Main entry point for mustache template resolution.
@@ -24,6 +28,7 @@ final class MustacheResolver
         private readonly ParserInterface $parser,
         private readonly ResolutionPipeline $pipeline,
         private readonly CacheInterface $cache,
+        private readonly ?SecurityValidator $securityValidator = null,
     ) {}
 
     /**
@@ -53,6 +58,7 @@ final class MustacheResolver
         foreach ($tokens as $token) {
             try {
                 $value = $this->pipeline->resolve($token, $context);
+                $this->reportContainerViolations($token, $value);
                 $stringValue = $this->valueToString($value);
                 $translated = str_replace($token->getFull(), $stringValue, $translated);
                 $resolvedValues[$token->getRaw()] = $value;
@@ -138,14 +144,82 @@ final class MustacheResolver
                 ->withStrict($strict);
         }
 
-        if (is_array($data)) {
-            return ResolutionContext::fromArray($data)
+        if ($data instanceof Model) {
+            return ResolutionContext::create(new EloquentAccessor($data, $this->securityValidator))
                 ->withStrict($strict);
         }
 
-        // Assume it's an object/model, wrap it in accessor
+        if (is_array($data)) {
+            return ResolutionContext::fromArray($data, $this->securityValidator)
+                ->withStrict($strict);
+        }
+
+        // Assume it's an object, wrap it in accessor
         return ResolutionContext::fromArray(['model' => $data])
             ->withStrict($strict);
+    }
+
+    /**
+     * Report containers whose contents include blacklisted attributes.
+     *
+     * The output is intentionally left intact in 2.1; the warning tells
+     * consumers that a future major version will filter these values.
+     * Only active in report mode.
+     */
+    private function reportContainerViolations(TokenInterface $token, mixed $value): void
+    {
+        if ($this->securityValidator === null
+            || $this->securityValidator->getMode() !== SecurityValidator::MODE_REPORT) {
+            return;
+        }
+
+        if ($value instanceof Model) {
+            return; // handled by modelToString()
+        }
+
+        if ($value instanceof Arrayable) {
+            $value = $value->toArray();
+        }
+
+        if (! is_array($value)) {
+            return;
+        }
+
+        $found = $this->findBlacklistedKeys($value);
+
+        if ($found !== []) {
+            $this->securityValidator->reportViolation(
+                'mustache-resolver: resolved container contains blacklisted attribute(s), it would be filtered in a future major version',
+                ['path' => $token->getRaw(), 'blacklisted_attributes' => array_values(array_unique($found))],
+            );
+        }
+    }
+
+    /**
+     * Collect blacklisted keys present in an array, recursively.
+     *
+     * @param  array<mixed>  $data
+     * @return array<int, string>
+     */
+    private function findBlacklistedKeys(array $data): array
+    {
+        $found = [];
+
+        foreach ($data as $key => $item) {
+            if (is_string($key) && $this->securityValidator?->isAttributeBlacklisted($key)) {
+                $found[] = $key;
+            }
+
+            if ($item instanceof Arrayable) {
+                $item = $item->toArray();
+            }
+
+            if (is_array($item)) {
+                $found = array_merge($found, $this->findBlacklistedKeys($item));
+            }
+        }
+
+        return $found;
     }
 
     /**
@@ -166,6 +240,10 @@ final class MustacheResolver
         }
 
         if (is_object($value)) {
+            if ($value instanceof Model) {
+                return $this->modelToString($value);
+            }
+
             if (method_exists($value, '__toString')) {
                 return (string) $value;
             }
@@ -174,5 +252,78 @@ final class MustacheResolver
         }
 
         return (string) $value;
+    }
+
+    /**
+     * Serialize a whole Eloquent model for template replacement.
+     *
+     * Serializing a model dumps all its attributes, bypassing path-based
+     * checks: in enforce mode the blacklist is applied to the serialized
+     * output, in report mode a warning is logged and output is unchanged.
+     * When nothing would be filtered, native serialization is kept and
+     * no warning is emitted.
+     */
+    private function modelToString(Model $model): string
+    {
+        if ($this->securityValidator === null
+            || $this->securityValidator->getMode() === SecurityValidator::MODE_OFF) {
+            return (string) $model;
+        }
+
+        $attributes = $model->toArray();
+        $stripped = $this->stripBlacklistedAttributes($attributes);
+
+        // Nothing to filter: keep Eloquent's native serialization untouched
+        if ($stripped === $attributes) {
+            return (string) $model;
+        }
+
+        if ($this->securityValidator->getMode() === SecurityValidator::MODE_REPORT) {
+            $this->securityValidator->reportViolation(
+                'mustache-resolver: whole model serialization would be filtered in enforce mode',
+                ['model' => get_class($model)],
+            );
+
+            return (string) $model;
+        }
+
+        $this->securityValidator->reportViolation(
+            'mustache-resolver: blacklisted attributes stripped from serialized model',
+            ['model' => get_class($model)],
+        );
+
+        // Preserve Eloquent's escapeWhenCastingToString() behavior: the flag
+        // is protected, so it is read through a closure bound to the model
+        $reader = function (): bool {
+            // @phpstan-ignore-next-line — bound to the model to read its protected flag
+            return (bool) $this->escapeWhenCastingToString;
+        };
+
+        $json = json_encode($stripped) ?: '';
+
+        return $reader->call($model) ? e($json) : $json;
+    }
+
+    /**
+     * Remove blacklisted keys from an array representation, recursively.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function stripBlacklistedAttributes(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if ($this->securityValidator?->isAttributeBlacklisted((string) $key)) {
+                unset($data[$key]);
+
+                continue;
+            }
+
+            if (is_array($value)) {
+                $data[$key] = $this->stripBlacklistedAttributes($value);
+            }
+        }
+
+        return $data;
     }
 }

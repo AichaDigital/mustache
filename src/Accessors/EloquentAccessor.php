@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AichaDigital\MustacheResolver\Accessors;
 
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
+use AichaDigital\MustacheResolver\Contracts\SecurityAwareAccessorInterface;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use Illuminate\Database\Eloquent\Model;
 
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\Model;
  * - Relation navigation
  * - Nested dot-notation paths
  */
-final readonly class EloquentAccessor implements DataAccessorInterface
+final readonly class EloquentAccessor implements DataAccessorInterface, SecurityAwareAccessorInterface
 {
     public function __construct(
         private Model $model,
@@ -27,13 +28,19 @@ final readonly class EloquentAccessor implements DataAccessorInterface
 
     public function get(string $path): mixed
     {
-        // Check if first segment is blacklisted
-        $firstSegment = explode('.', $path)[0];
-        if ($this->securityValidator?->isAttributeBlacklisted($firstSegment)) {
+        if (! $this->allowsPath($path)) {
             return null;
         }
 
         return data_get($this->model, $path);
+    }
+
+    /**
+     * Check every segment against the blacklist and the path depth.
+     */
+    public function allowsPath(string $path): bool
+    {
+        return $this->securityValidator === null || $this->securityValidator->allowsPath($path);
     }
 
     public function has(string $path): bool

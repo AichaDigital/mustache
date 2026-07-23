@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use AichaDigital\MustacheResolver\Core\Context\ResolutionContext;
+use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Core\Token\Token;
 use AichaDigital\MustacheResolver\Core\Token\TokenType;
 use AichaDigital\MustacheResolver\Resolvers\CollectionResolver;
@@ -386,5 +387,53 @@ describe('CollectionResolver → Last with Countable and ArrayAccess', function 
         $result = $resolver->resolve($token, $context);
 
         expect($result)->toBeNull();
+    });
+});
+
+describe('CollectionResolver → security policy', function () {
+    it('blocks collection paths with blacklisted segments (regression: no bypass via getRaw)', function () {
+        $context = ResolutionContext::fromArray($this->data, new SecurityValidator([], ['title']));
+        $token = Token::create('User.posts.0.title', TokenType::COLLECTION, ['User', 'posts', '0', 'title']);
+
+        expect($this->resolver->resolve($token, $context))->toBeNull();
+    });
+
+    it('blocks wildcard paths with blacklisted segments', function () {
+        $context = ResolutionContext::fromArray($this->data, new SecurityValidator([], ['views']));
+        $token = Token::create('User.posts.*.views', TokenType::COLLECTION, ['User', 'posts', '*', 'views']);
+
+        expect($this->resolver->resolve($token, $context))->toBeNull();
+    });
+
+    it('blocks collection paths exceeding max_depth', function () {
+        $context = ResolutionContext::fromArray($this->data, new SecurityValidator([], [], 1));
+        $token = Token::create('User.posts.0.title', TokenType::COLLECTION, ['User', 'posts', '0', 'title']);
+
+        expect($this->resolver->resolve($token, $context))->toBeNull();
+    });
+
+    it('resolves but reports violations in report mode', function () {
+        $reported = [];
+        $validator = new SecurityValidator(
+            [],
+            ['title'],
+            10,
+            SecurityValidator::MODE_REPORT,
+            function (string $message, array $context = []) use (&$reported) {
+                $reported[] = $message;
+            },
+        );
+        $context = ResolutionContext::fromArray($this->data, $validator);
+        $token = Token::create('User.posts.0.title', TokenType::COLLECTION, ['User', 'posts', '0', 'title']);
+
+        expect($this->resolver->resolve($token, $context))->toBe('First Post');
+        expect($reported)->toHaveCount(1);
+    });
+
+    it('resolves normally when the accessor is not security-aware', function () {
+        // Baseline: contexts built without a validator keep current behavior
+        $token = Token::create('User.posts.*.title', TokenType::COLLECTION, ['User', 'posts', '*', 'title']);
+
+        expect($this->resolver->resolve($token, $this->context))->toBe(['First Post', 'Second Post', 'Third Post']);
     });
 });
