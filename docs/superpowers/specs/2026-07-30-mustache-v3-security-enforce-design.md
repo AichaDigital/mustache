@@ -197,7 +197,9 @@ So "v3 defaults to enforce" is true only for fresh installs. Stating it unqualif
 
 **This is the point most easily overstated:** with `mode: report` preserved, patterns only report and containers are not blocked. The v3 defaults are loaded, not in force. README and CHANGELOG must say exactly that — fresh installs get `enforce`; configurations published under v2 keep their mode explicitly.
 
-### 11.2 Standalone usage — proposed, pending sign-off
+**Why not `replaceConfigRecursivelyFrom()`.** Laravel ships one, and it looks like the obvious fix since `array_replace_recursive` does fill in absent keys. It is rejected because it corrupts the keys that *are* present: recursive replacement merges lists **by numeric index**, so a consumer declaring `blacklisted_attributes => ['my_field']` would end up with `['my_field', 'remember_token', 'api_token', 'secret']` — their entry overwriting position 0 and the package's tail leaking through. An explicit `[]` would likewise disable nothing, since an empty array replaces no positions. Key presence must therefore be inspected deliberately with `array_key_exists()`, never delegated to a recursive merge.
+
+### 11.2 Standalone usage
 
 The public standalone example builds `MustacheResolver` with no validator (`README.md:57`) and the constructor accepts one as nullable (`MustacheResolver.php:27`). So "enforce by default" currently describes the Laravel integration only, not the framework-agnostic package the README advertises.
 
@@ -205,7 +207,7 @@ The public standalone example builds `MustacheResolver` with no validator (`READ
 
 The default standalone validator carries no reporter (the Laravel one injects `Log::warning`), so it blocks silently unless the caller supplies one. The README must show both paths: Laravel via the provider, standalone via explicit construction.
 
-*This is the one resolution not yet signed off by the owner.*
+Approved by the owner on 2026-07-31.
 
 ### 11.3 Scalar bypass and the trust boundary
 
