@@ -144,6 +144,34 @@ final readonly class Token implements TokenInterface
     }
 
     /**
+     * The path string the accessor actually receives for this token.
+     *
+     * Verified against each resolver's own navigation call:
+     * - MODEL (ModelResolver), RELATION (RelationResolver) and COLLECTION
+     *   (CollectionResolver) all navigate on getFieldPath() — the prefix
+     *   is stripped before it reaches the accessor.
+     * - TABLE (TableResolver:41-43) navigates the full path, prefix
+     *   included, because tables are accessed by their full name.
+     * - DYNAMIC (DynamicFieldResolver:52,66) has no static path: it reads
+     *   an indicator field, then accesses a field name resolved at
+     *   runtime. Both accesses already go through the accessor, which
+     *   validates each of them independently — evaluating a static path
+     *   here would check a different path and manufacture false
+     *   positives.
+     * - Every other type does not navigate data through the accessor.
+     */
+    public function getSecurityPath(): ?string
+    {
+        return match ($this->type) {
+            TokenType::MODEL,
+            TokenType::RELATION,
+            TokenType::COLLECTION => implode('.', $this->getFieldPath()),
+            TokenType::TABLE => implode('.', $this->getPath()),
+            default => null,
+        };
+    }
+
+    /**
      * Create a new token with a different type.
      */
     public function withType(TokenType $type): self

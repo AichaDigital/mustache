@@ -12,6 +12,7 @@ use AichaDigital\MustacheResolver\Core\MustacheResolver;
 use AichaDigital\MustacheResolver\Core\Parser\MustacheParser;
 use AichaDigital\MustacheResolver\Core\Pipeline\PipelineBuilder;
 use AichaDigital\MustacheResolver\Core\Pipeline\ResolutionPipeline;
+use AichaDigital\MustacheResolver\Core\Security\OutputSanitizer;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
@@ -171,6 +172,10 @@ class MustacheServiceProvider extends ServiceProvider
                 $app->make(ResolutionPipeline::class),
                 $app->make(CacheInterface::class),
                 $app->make(SecurityValidator::class),
+                new OutputSanitizer(
+                    $app->make(SecurityValidator::class),
+                    (bool) ($app['config']['mustache-resolver']['security']['allow_container_serialization'] ?? false),
+                ),
             );
         });
 

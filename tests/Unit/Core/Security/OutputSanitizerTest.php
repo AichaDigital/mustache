@@ -671,3 +671,76 @@ describe('OutputSanitizer → token path validation', function () {
         expect($sanitizer->sanitize('hunter2', sanitizerTestToken('User.password'))->blocked)->toBeFalse();
     });
 });
+
+describe('OutputSanitizer → scalar projections', function () {
+    it('allows an empty list', function () {
+        $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
+
+        $result = $sanitizer->sanitize([], sanitizerTestToken('User.posts.title', TokenType::COLLECTION));
+
+        expect($result->blocked)->toBeFalse();
+        expect($result->value)->toBe([]);
+        expect($result->text)->toBe('');
+    });
+
+    it('allows a list of pure scalars', function () {
+        $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
+
+        $result = $sanitizer->sanitize(
+            [1, 'two', 3.0, true, null],
+            sanitizerTestToken('User.posts.value', TokenType::COLLECTION)
+        );
+
+        expect($result->blocked)->toBeFalse();
+        expect($result->value)->toBe([1, 'two', 3.0, true, null]);
+        expect($result->text)->toBe('1, two, 3, true, ');
+    });
+
+    it('normalises Stringable elements to strings, never keeping the raw object', function () {
+        $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
+
+        $a = new class implements Stringable
+        {
+            public function __toString(): string
+            {
+                return 'alpha';
+            }
+        };
+        $b = new class implements Stringable
+        {
+            public function __toString(): string
+            {
+                return 'beta';
+            }
+        };
+
+        $result = $sanitizer->sanitize([$a, $b], sanitizerTestToken('User.posts.label', TokenType::COLLECTION));
+
+        expect($result->blocked)->toBeFalse();
+        expect($result->value)->toBe(['alpha', 'beta']);
+        expect($result->text)->toBe('alpha, beta');
+    });
+
+    it('blocks an associative array even of pure scalars — its keys ARE field names', function () {
+        $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
+
+        $result = $sanitizer->sanitize(
+            ['name' => 'Acme', 'code' => 'ACM'],
+            sanitizerTestToken('User.department', TokenType::MODEL)
+        );
+
+        expect($result->blocked)->toBeTrue();
+    });
+
+    it('blocks a list containing raw structure instead of treating it as a projection', function (mixed $element) {
+        $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
+
+        $result = $sanitizer->sanitize(['ok', $element], sanitizerTestToken('User.posts.mixed', TokenType::COLLECTION));
+
+        expect($result->blocked)->toBeTrue();
+    })->with([
+        'a model' => fn () => new User(['name' => 'John']),
+        'a collection' => fn () => new Collection(['x']),
+        'a nested array' => fn () => ['nested' => true],
+    ]);
+});

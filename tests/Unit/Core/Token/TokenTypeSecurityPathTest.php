@@ -11,13 +11,13 @@ describe('TokenType → security path', function () {
         TokenType::MODEL,
         TokenType::TABLE,
         TokenType::RELATION,
-        TokenType::DYNAMIC,
         TokenType::COLLECTION,
     ]);
 
     it('marks non-navigating types as carrying no security path', function (TokenType $type) {
         expect($type->hasSecurityPath())->toBeFalse();
     })->with([
+        TokenType::DYNAMIC,
         TokenType::FUNCTION,
         TokenType::VARIABLE,
         TokenType::MATH,
@@ -32,7 +32,7 @@ describe('TokenType → security path', function () {
     ]);
 
     it('covers every case of the enum, so a new type cannot default into a regime', function () {
-        $covered = 5 + 11;
+        $covered = 4 + 12;
 
         expect(count(TokenType::cases()))->toBe($covered);
     });

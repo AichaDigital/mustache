@@ -173,7 +173,7 @@ describe('Security wiring through the ServiceProvider', function () {
         expect($result->getTranslated())->toBe('Email: ');
     });
 
-    it('resolves non-blacklisted collection tokens', function () {
+    it('resolves non-blacklisted collection tokens (v3: scalar projection, not a container dump)', function () {
         Post::factory()->create([
             'user_id' => $this->user->id,
             'title' => 'First Post',
@@ -183,8 +183,28 @@ describe('Security wiring through the ServiceProvider', function () {
         config()->set('mustache-resolver.security.mode', 'enforce');
         config()->set('mustache-resolver.security.blacklisted_attributes', ['email']);
 
+        // The wildcard produces a list of already-extracted scalar titles,
+        // not a raw container — OutputSanitizer::isScalarProjection()
+        // recognises the shape and skips the container-block gate.
         $result = Mustache::translate('Posts: {{User.posts.*.title}}', $this->user);
         expect($result->getTranslated())->toBe('Posts: First Post');
+    });
+
+    it('keeps a wildcard projection of a blacklisted attribute blocked', function () {
+        Post::factory()->create([
+            'user_id' => $this->user->id,
+            'title' => 'First Post',
+            'body' => 'Body',
+        ]);
+
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.blacklisted_attributes', ['title']);
+
+        // The projection escape only applies after the path check: the
+        // path 'posts.*.title' is rejected by the blacklist before the
+        // sanitizer's projection classification is ever consulted.
+        $result = Mustache::translate('Posts: {{User.posts.*.title}}', $this->user);
+        expect($result->getTranslated())->toBe('Posts: ');
     });
 
     it('dedupes repeated security reports', function () {
@@ -198,20 +218,21 @@ describe('Security wiring through the ServiceProvider', function () {
         Log::shouldHaveReceived('warning')->once();
     });
 
-    it('strips blacklisted attributes when serializing a whole relation in enforce mode', function () {
+    it('blocks a whole relation container in enforce mode (v3: containers are blocked by default)', function () {
         config()->set('mustache-resolver.security.mode', 'enforce');
         config()->set('mustache-resolver.security.blacklisted_attributes', ['name']);
         Log::spy();
 
-        // Asking for the relation itself serializes the whole model: the
-        // blacklist must filter the serialized output, not just path segments
+        // v3 contract (OutputSanitizer::maySerialiseWhole()): a bare
+        // Eloquent model is a container, and Barrier 2 blocks whole-
+        // container serialization by default in enforce mode — it no
+        // longer strips the blacklisted key and keeps the rest, replacing
+        // the 2.1 "strips blacklisted attributes ... " contract.
         $result = Mustache::translate('Dept: {{User.department}}', $this->user);
 
-        expect($result->getTranslated())->not->toContain('"name"');
-        expect($result->getTranslated())->not->toContain('Engineering');
-        expect($result->getTranslated())->toContain('"code"');
+        expect($result->getTranslated())->toBe('Dept: ');
         Log::shouldHaveReceived('warning')
-            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'stripped from serialized model'));
+            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'container blocked by security policy'));
     });
 
     it('serializes whole relations unchanged but logs in report mode', function () {
@@ -222,33 +243,47 @@ describe('Security wiring through the ServiceProvider', function () {
         $result = Mustache::translate('Dept: {{User.department}}', $this->user);
 
         expect($result->getTranslated())->toContain('Engineering');
+        // v3 contract: the message comes from the sanitizer's generic
+        // container-block gate (OutputSanitizer::sanitize()), not from a
+        // model-specific "whole model serialization" message — the gate
+        // is the same one for any non-whitelisted container.
         Log::shouldHaveReceived('warning')
-            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'whole model serialization'));
+            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'container would be blocked in enforce mode'));
     });
 
-    it('does not warn about model serialization when nothing would be filtered', function () {
+    it('warns about model serialization in report mode even when the blacklist matches nothing (v3: unconditional per-container report)', function () {
         config()->set('mustache-resolver.security.mode', 'report');
         config()->set('mustache-resolver.security.blacklisted_attributes', ['nonexistent']);
         Log::spy();
 
+        // v3 contract: the report is about the container itself being
+        // unauthorised for whole serialization — it fires before any
+        // blacklist is even consulted (OutputSanitizer::sanitize()'s
+        // container gate), replacing the 2.1 "only warn if the blacklist
+        // would have mattered" contract.
         $result = Mustache::translate('Dept: {{User.department}}', $this->user);
 
         expect($result->getTranslated())->toContain('Engineering');
-        Log::shouldNotHaveReceived('warning');
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'container would be blocked in enforce mode'));
     });
 
-    it('keeps native serialization in enforce mode when nothing is stripped', function () {
+    it('blocks a whole relation container in enforce mode even when the blacklist matches nothing (v3: unconditional per-container block)', function () {
         config()->set('mustache-resolver.security.mode', 'enforce');
         config()->set('mustache-resolver.security.blacklisted_attributes', ['nonexistent']);
         Log::spy();
 
+        // v3 contract: replaces 2.1's "keeps native serialization when
+        // nothing is stripped" — the block does not depend on whether the
+        // blacklist matches anything inside the container.
         $result = Mustache::translate('Dept: {{User.department}}', $this->user);
 
-        expect($result->getTranslated())->toContain('"name":"Engineering"');
-        Log::shouldNotHaveReceived('warning');
+        expect($result->getTranslated())->toBe('Dept: ');
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'container blocked by security policy'));
     });
 
-    it('preserves escapeWhenCastingToString when filtering in enforce mode', function () {
+    it('blocks a whole relation container in enforce mode even with an XSS payload and escapeWhenCastingToString set (v3: nothing leaks when blocked)', function () {
         config()->set('mustache-resolver.security.mode', 'enforce');
         config()->set('mustache-resolver.security.blacklisted_attributes', ['code']);
 
@@ -256,10 +291,16 @@ describe('Security wiring through the ServiceProvider', function () {
         $this->department->setAttribute('name', '<b>Ops</b>');
         $this->user->setRelation('department', $this->department);
 
+        // v3 contract: a non-whitelisted model is blocked before escaping
+        // is even reached — escapeWhenCastingToString() only matters for
+        // containers AUTHORISED for whole serialization (see
+        // OutputSanitizerTest > filtering authorised containers > it
+        // honours escapeWhenCastingToString on the serialized container).
         $result = Mustache::translate('Dept: {{User.department}}', $this->user);
 
-        expect($result->getTranslated())->toContain('&lt;b&gt;');
+        expect($result->getTranslated())->toBe('Dept: ');
         expect($result->getTranslated())->not->toContain('<b>');
+        expect($result->getTranslated())->not->toContain('&lt;b&gt;');
         expect($result->getTranslated())->not->toContain('"code"');
     });
 
@@ -284,7 +325,7 @@ describe('Security wiring through the ServiceProvider', function () {
                 && $context['path'] === 'User.posts');
     });
 
-    it('does not report containers without blacklisted attributes', function () {
+    it('warns about container serialization in report mode even when the blacklist matches nothing (v3: unconditional per-container report)', function () {
         Post::factory()->create([
             'user_id' => $this->user->id,
             'title' => 'First Post',
@@ -295,12 +336,16 @@ describe('Security wiring through the ServiceProvider', function () {
         config()->set('mustache-resolver.security.blacklisted_attributes', ['nonexistent']);
         Log::spy();
 
+        // v3 contract: replaces 2.1's "does not report containers without
+        // blacklisted attributes" — the report fires for the container
+        // itself, independent of whether the blacklist matches.
         Mustache::translate('Posts: {{User.posts}}', $this->user);
 
-        Log::shouldNotHaveReceived('warning');
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'container would be blocked in enforce mode'));
     });
 
-    it('leaves containers unfiltered in enforce mode (deferred to v3)', function () {
+    it('blocks a whole collection container in enforce mode (v3: containers are blocked by default, no longer deferred)', function () {
         Post::factory()->create([
             'user_id' => $this->user->id,
             'title' => 'First Post',
@@ -310,10 +355,12 @@ describe('Security wiring through the ServiceProvider', function () {
         config()->set('mustache-resolver.security.mode', 'enforce');
         config()->set('mustache-resolver.security.blacklisted_attributes', ['title']);
 
-        // 2.1 contract: filtering full containers is v3 scope, output stays intact
+        // v3 contract: this inverts the 2.1 "leaves containers unfiltered
+        // in enforce mode (deferred to v3)" test it replaces — that
+        // deferral is what Phase 1's OutputSanitizer delivers.
         $result = Mustache::translate('Posts: {{User.posts}}', $this->user);
 
-        expect($result->getTranslated())->toContain('First Post');
+        expect($result->getTranslated())->toBe('Posts: ');
     });
 
     it('resets report dedupe at the end of the request/job cycle', function () {

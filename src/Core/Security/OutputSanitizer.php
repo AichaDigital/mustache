@@ -31,16 +31,49 @@ final readonly class OutputSanitizer
         // A resolver that navigates on its own can return a plain scalar,
         // clearing the accessor entirely; the string itself carries no mark
         // of origin. Re-checking the token's own path here covers that case
-        // for tokens where a path is meaningful at all — hasSecurityPath()
-        // keeps function/variable/math/temporal tokens untouched, so their
-        // names are never run through attribute rules. allowsPath() already
-        // reports through the validator's reporter and already returns true
-        // in report mode, so no extra reporting or mode branching belongs
-        // here; the accessor may have checked the same path already, and
-        // deduplicating that is the reporter's job, wired by the service
-        // provider.
-        if ($token->getType()->hasSecurityPath() && ! $this->validator->allowsPath($token->getRaw())) {
+        // for tokens where a path is meaningful at all. getSecurityPath()
+        // returns the SAME string the accessor itself received (per
+        // resolver: field path with prefix stripped, or full path for
+        // TABLE) — that is what makes this check land on the same dedup
+        // key as barrier 1's, instead of manufacturing a second key for
+        // the same logical path. It is null for tokens with no static path
+        // (hasSecurityPath() false, or DYNAMIC, whose two accesses are
+        // already validated independently by the accessor). allowsPath()
+        // already reports through the validator's reporter and already
+        // returns true in report mode, so no extra reporting or mode
+        // branching belongs here; the accessor usually reports first
+        // without knowing the full token, so it is this second call that
+        // gets deduplicated away, not the other way round.
+        $securityPath = $token->getSecurityPath();
+
+        if ($securityPath !== null && ! $this->validator->allowsPath($securityPath)) {
             return SanitizedValue::blocked();
+        }
+
+        // Scalar projection escape, checked ONLY on the resolved root value
+        // and ONLY after the path check above — ordering is what keeps
+        // {{User.posts.*.email}} blocked by the blacklist on `email` while
+        // {{User.posts.*.title}} resolves: the projection never gets a
+        // chance to override a path the validator already rejected.
+        //
+        // CollectionResolver's wildcard produces a plain PHP list of
+        // already-extracted field values (see resolveWildcard()), not a
+        // raw structure — isContainer()'s blanket is_array() => true
+        // would otherwise block it under the same "container" gate as an
+        // actual whole-model dump. This escape recognises that specific
+        // shape without weakening isContainer() itself: it never runs
+        // inside the recursive container-filtering walk, so a nested
+        // array under a blacklist-checked key is still filtered as a
+        // container, list-shaped or not.
+        //
+        // Trade-off, deliberately not closed here: the sanitizer cannot
+        // prove each scalar actually came from the declared path — it
+        // only knows the shape of what it received. That guarantee rests
+        // on the package's own resolvers; a consumer-registered resolver
+        // is trusted code, the same limit already accepted for a resolver
+        // that returns a bare scalar under an innocuous token.
+        if ($this->isScalarProjection($raw)) {
+            return $this->sanitizeScalarProjection($raw);
         }
 
         if ($this->isContainer($raw) && ! $this->maySerialiseWhole($raw)) {
@@ -115,6 +148,84 @@ final readonly class OutputSanitizer
         }
 
         return true;
+    }
+
+    /**
+     * Whether a value is a scalar projection: a list built by a resolver's
+     * own field extraction (CollectionResolver's wildcard), not a raw
+     * structure being handed to the barrier for a decision.
+     *
+     * Deliberately a SEPARATE, EARLIER classification from isContainer() —
+     * this does not change what isContainer() considers a container, it
+     * only recognises a specific shape before that gate is reached. Only
+     * called on the resolved root value in sanitize(); never inside
+     * stripBlacklisted()'s recursion, so a nested list under a
+     * blacklist-checked key is still filtered as a container regardless
+     * of its own shape.
+     *
+     * A list (array_is_list(): sequential, 0-based keys) qualifies when
+     * every element is scalar, null, an enum, or an atomic-renderable
+     * Stringable object (per isContainer()'s own precedence — an object
+     * that is ALSO Arrayable/Traversable is still a container, checked
+     * via isContainer() itself rather than duplicated here). An empty
+     * list qualifies: it carries no information to leak.
+     *
+     * Disqualified, all falling through to the ordinary container gate:
+     * an associative array — its keys ARE field names, so it is a dump,
+     * not a projection; any element that is itself an array, a Model, a
+     * Collection, Arrayable or Traversable — raw structure inside the
+     * list; and anything else not classified as atomic (a resource, for
+     * instance), which the container gate then blocks.
+     */
+    private function isScalarProjection(mixed $value): bool
+    {
+        if (! is_array($value) || ! array_is_list($value)) {
+            return false;
+        }
+
+        foreach ($value as $element) {
+            if ($element === null || is_scalar($element) || $element instanceof \UnitEnum) {
+                continue;
+            }
+
+            if ($element instanceof \Stringable && ! $this->isContainer($element)) {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Build the SanitizedValue for a list that passed isScalarProjection().
+     *
+     * value: every atomic-renderable element normalised to its rendered
+     * string — a projection must never carry a raw object into
+     * getResolvedValues(), the same rule sanitize() enforces for a bare
+     * atomic object at the root. Enums are the one exception, kept raw,
+     * by the same convention used everywhere else in this class (see the
+     * class docblock on stripBlacklisted() and sanitize()'s object branch).
+     *
+     * text: the legacy projection rendering. render()'s array branch is
+     * the same implode(', ', ...) that v2.1's valueToString() produced
+     * for arrays — a wildcard projection renders exactly as it always
+     * did. Never renderContainer()'s JSON, which is for authorised
+     * containers, not projections.
+     *
+     * @param  array<int, mixed>  $list
+     */
+    private function sanitizeScalarProjection(array $list): SanitizedValue
+    {
+        $normalised = array_map(
+            fn (mixed $element): mixed => (is_object($element) && ! $element instanceof \UnitEnum)
+                ? $this->render($element)
+                : $element,
+            $list,
+        );
+
+        return new SanitizedValue($normalised, $this->render($list));
     }
 
     /**
@@ -213,7 +324,27 @@ final readonly class OutputSanitizer
         $depthPruned = false;
         $cycleCut = false;
         $conversionFailed = false;
-        $filtered = $this->stripBlacklisted($array, $found, $baseDepth, $depthPruned, $cycleCut, $conversionFailed);
+
+        // The root itself is an ancestor: without seeding it here, a cycle
+        // that points back to the ROOT (A → B → A) is only recognised one
+        // hop later than it should be — stripBlacklisted() only attaches
+        // objects it encounters as nested values, so the root, converted
+        // to $array above and never passed through that loop, would never
+        // be in $seen on its own. Only objects seed the chain; a raw array
+        // root has no identity to re-encounter.
+        $seen = new \SplObjectStorage;
+
+        if (is_object($raw)) {
+            $seen->attach($raw);
+        }
+
+        try {
+            $filtered = $this->stripBlacklisted($array, $found, $baseDepth, $depthPruned, $cycleCut, $conversionFailed, $seen);
+        } finally {
+            if (is_object($raw)) {
+                $seen->detach($raw);
+            }
+        }
 
         if ($found !== []) {
             $this->validator?->reportViolation(
@@ -251,8 +382,14 @@ final readonly class OutputSanitizer
             );
         }
 
+        // Report observes without altering: the rendered text must stay
+        // exactly what v2.1 produced (a model's own __toString(), a
+        // collection's own toJson(), an array's imploded scalars — all of
+        // which render() reproduces), or report mode stops being a safe
+        // pre-upgrade measuring tool and starts changing template output
+        // on its own.
         if ($this->validator?->getMode() === SecurityValidator::MODE_REPORT) {
-            return new SanitizedValue($raw, $this->renderContainer($this->stripBlacklisted($array, $found, $baseDepth, $depthPruned, $cycleCut, $conversionFailed), $raw));
+            return new SanitizedValue($raw, $this->render($raw));
         }
 
         return new SanitizedValue($filtered, $this->renderContainer($filtered, $raw));

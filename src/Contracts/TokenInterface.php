@@ -69,4 +69,18 @@ interface TokenInterface
      * @return array<string, mixed>
      */
     public function getMetadata(): array;
+
+    /**
+     * Get the path string the accessor actually receives for this token,
+     * or null when the token has no static path to check.
+     *
+     * This mirrors each resolver's own navigation, per resolver:
+     * MODEL/RELATION/COLLECTION use the field path (prefix stripped);
+     * TABLE uses the full path (prefix included, tables are accessed by
+     * their full name); DYNAMIC has no static path — it reads an
+     * indicator then accesses a name resolved at runtime, both already
+     * validated by the accessor — and everything else does not navigate
+     * data at all.
+     */
+    public function getSecurityPath(): ?string;
 }

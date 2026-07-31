@@ -133,6 +133,13 @@ enum TokenType: string
      * the blacklist over a function or variable token would produce false
      * positives on names the consumer owns entirely.
      *
+     * DYNAMIC is here, not above with the other accessor-requiring types:
+     * it has no static path to check (see Token::getSecurityPath()) — its
+     * two accesses (the indicator, then the runtime-resolved field) are
+     * each already validated by the accessor when they happen. Checking a
+     * static path for it here would check the WRONG path and manufacture
+     * false positives, not add a second barrier.
+     *
      * The match is exhaustive on purpose — a new case must choose a regime.
      */
     public function hasSecurityPath(): bool
@@ -141,8 +148,8 @@ enum TokenType: string
             self::MODEL,
             self::TABLE,
             self::RELATION,
-            self::DYNAMIC,
             self::COLLECTION => true,
+            self::DYNAMIC,
             self::FUNCTION,
             self::VARIABLE,
             self::MATH,
