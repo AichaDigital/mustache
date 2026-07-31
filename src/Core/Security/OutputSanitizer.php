@@ -10,10 +10,20 @@ use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Barrier 2: every resolved value passes through here before it forks into
- * the rendered template and the recorded resolved values.
+ * Barrier 2: every value resolved through MustacheResolver::translate()
+ * passes through here before it forks into the rendered template and the
+ * recorded resolved values.
  *
- * A resolver cannot bypass it, because it sits downstream of all of them.
+ * Scope, precisely: every resolver in the default pipeline reached via
+ * translate()'s token loop is covered, because that loop calls sanitize()
+ * on every result unconditionally — a resolver cannot bypass it from
+ * inside that loop. The known exception is compound expressions:
+ * Core\Compound\UseVariableResolver calls the pipeline directly and
+ * substitutes the resolved value without ever reaching this class. That
+ * path is inert today — no default resolver handles TokenType::COMPOUND
+ * and CompoundResolver is not registered anywhere — so it is not a live
+ * gap, but it will need its own wiring when compound expressions are
+ * exposed (Phase 2), not an assumption that this barrier already covers it.
  */
 final readonly class OutputSanitizer
 {
@@ -89,14 +99,42 @@ final readonly class OutputSanitizer
             }
         }
 
-        // An object treated as atomic must not survive raw into resolvedValues:
-        // TranslationResult::toArray() would keep the object, and a later
-        // serialization could expose the structure this barrier just decided
-        // not to expose. Text and recorded value become the same string.
+        // An atomic object (Carbon, any other Stringable) is only
+        // normalised to a string in enforce mode — Phase 1's promise is
+        // that installing this branch unchanged (default mode: report)
+        // changes NOTHING for a consumer. Normalising it in report too
+        // would silently swap a Carbon for a string in getResolvedValues()
+        // before enforce is ever turned on, breaking that promise, and
+        // report protects nothing by doing so: nothing is blocked in
+        // report, so there is no leak this pre-empts.
+        //
+        // Both branches report — the change is worth surfacing either way.
+        // In report, this is the ONLY signal a consumer gets that upgrading
+        // to enforce will change a value's type, not just its presence; a
+        // measuring tool that hides the type change defeats its purpose.
+        // In enforce, the object survives nowhere (TranslationResult::
+        // toArray() would otherwise keep it, and a later serialization
+        // could expose structure this barrier just decided not to expose),
+        // so the normalisation is reported as the policy action it is,
+        // even though — unlike a block — the rendered text never changes.
         if (is_object($raw) && ! $raw instanceof \UnitEnum && ! $this->isContainer($raw)) {
             $text = $this->render($raw);
 
-            return new SanitizedValue($text, $text);
+            if ($this->validator->getMode() === SecurityValidator::MODE_ENFORCE) {
+                $this->validator->reportViolation(
+                    'mustache-resolver: atomic object normalized to string by security policy',
+                    ['path' => $token->getRaw(), 'type' => get_debug_type($raw)],
+                );
+
+                return new SanitizedValue($text, $text);
+            }
+
+            $this->validator->reportViolation(
+                'mustache-resolver: atomic object would be normalized to string in enforce mode',
+                ['path' => $token->getRaw(), 'type' => get_debug_type($raw)],
+            );
+
+            return new SanitizedValue($raw, $text);
         }
 
         if ($this->isContainer($raw)) {
@@ -202,22 +240,31 @@ final readonly class OutputSanitizer
      * Build the SanitizedValue for a list that passed isScalarProjection().
      *
      * value: every atomic-renderable element normalised to its rendered
-     * string — a projection must never carry a raw object into
-     * getResolvedValues(), the same rule sanitize() enforces for a bare
-     * atomic object at the root. Enums are the one exception, kept raw,
-     * by the same convention used everywhere else in this class (see the
-     * class docblock on stripBlacklisted() and sanitize()'s object branch).
+     * string — ONLY in enforce mode, the same "report changes nothing"
+     * rule sanitize() applies to a bare atomic object at the root (see
+     * that branch's docblock). In report, elements keep their original
+     * identity and type; enforce is the only mode that must never let a
+     * raw object survive into getResolvedValues(). Enums are the one
+     * exception even in enforce, kept raw, by the same convention used
+     * everywhere else in this class (see the class docblock on
+     * stripBlacklisted() and sanitize()'s object branch).
      *
-     * text: the legacy projection rendering. render()'s array branch is
-     * the same implode(', ', ...) that v2.1's valueToString() produced
-     * for arrays — a wildcard projection renders exactly as it always
-     * did. Never renderContainer()'s JSON, which is for authorised
-     * containers, not projections.
+     * text: the legacy projection rendering, identical in both modes.
+     * render()'s array branch is the same implode(', ', ...) that
+     * v2.1's valueToString() produced for arrays — a wildcard projection
+     * renders exactly as it always did. Never renderContainer()'s JSON,
+     * which is for authorised containers, not projections.
      *
      * @param  array<int, mixed>  $list
      */
     private function sanitizeScalarProjection(array $list): SanitizedValue
     {
+        $text = $this->render($list);
+
+        if ($this->validator?->getMode() !== SecurityValidator::MODE_ENFORCE) {
+            return new SanitizedValue($list, $text);
+        }
+
         $normalised = array_map(
             fn (mixed $element): mixed => (is_object($element) && ! $element instanceof \UnitEnum)
                 ? $this->render($element)
@@ -225,7 +272,7 @@ final readonly class OutputSanitizer
             $list,
         );
 
-        return new SanitizedValue($normalised, $this->render($list));
+        return new SanitizedValue($normalised, $text);
     }
 
     /**

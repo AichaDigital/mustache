@@ -113,6 +113,16 @@ return [
         // Maximum nesting depth for relation chains
         'max_depth' => 10,
 
+        // Whole-container serialization (a token resolving to an array or
+        // an Eloquent Collection, e.g. {{User.posts}}) is blocked by
+        // default in enforce mode. Setting this to true authorises plain
+        // arrays and Collections to serialize whole (still filtered by
+        // blacklisted_attributes below). It does NOT authorise Eloquent
+        // models: a bare Model always needs AichaDigital\MustacheResolver\
+        // Contracts\SafeForTemplateSerialization on its own class, never
+        // this global flag — see OutputSanitizer::maySerialiseWhole().
+        'allow_container_serialization' => env('MUSTACHE_SECURITY_ALLOW_CONTAINER_SERIALIZATION', false),
+
         // Disallow access to certain attributes/columns.
         // Every segment of a dot-notation path is checked, so a blacklisted
         // attribute is also blocked behind a relation (e.g. User.relationship.password).

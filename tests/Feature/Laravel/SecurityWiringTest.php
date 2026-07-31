@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
 use AichaDigital\MustacheResolver\Laravel\Facades\Mustache;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Workbench\App\Models\Department;
 use Workbench\App\Models\Post;
@@ -384,4 +385,57 @@ describe('Security wiring through the ServiceProvider', function () {
 
         Mustache::translate('Name: {{User.name}}', $this->user);
     })->throws(ModelNotAllowedException::class);
+
+    it('closes the barrier-1 gap for a plain object routed through NULL_COALESCE', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.blacklisted_attributes', ['password']);
+
+        $plainObject = (object) ['password' => 'SECRET'];
+
+        // createContext()'s plain-object fallback wraps $data as
+        // ['model' => $data]. NULL_COALESCE tokens strip their first path
+        // segment the same way MODEL tokens do (Token::getFieldPath()), so
+        // the leading 'x' here is discarded and the path that actually
+        // reaches the accessor is 'model.password' — through the wrapper,
+        // into the plain object's own property. hasSecurityPath() is false
+        // for NULL_COALESCE, so barrier 2 never checks this path either:
+        // before this fix, an accessor built without the security
+        // validator left this path completely unguarded.
+        $result = Mustache::translate("Value: {{x.model.password ?? 'fb'}}", $plainObject);
+
+        expect($result->getTranslated())->toBe('Value: fb');
+        expect($result->getResolvedValues())->not->toContain('SECRET');
+    });
+
+    it('resolves the equivalent array path correctly, for comparison with the plain-object case above', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.blacklisted_attributes', ['password']);
+
+        $data = ['model' => ['password' => 'SECRET']];
+
+        $result = Mustache::translate("Value: {{x.model.password ?? 'fb'}}", $data);
+
+        expect($result->getTranslated())->toBe('Value: fb');
+    });
+
+    it('does not retain the raw Carbon object through TranslationResult::toArray() in enforce mode', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+
+        $result = Mustache::translate('Created: {{User.created_at}}', $this->user);
+
+        expect($result->getResolvedValues()['User.created_at'])->toBeString();
+
+        $array = $result->toArray();
+        expect($array['resolved_values']['User.created_at'])->toBeString();
+    });
+
+    it('changes nothing for a consumer on the shipped default mode, report (Phase 1 promise)', function () {
+        // No config()->set() here on purpose: this exercises the
+        // ServiceProvider's actual shipped default (security.mode =
+        // 'report'). A consumer who installs this branch without touching
+        // config must see IDENTICAL behaviour to before this phase.
+        $result = Mustache::translate('Created: {{User.created_at}}', $this->user);
+
+        expect($result->getResolvedValues()['User.created_at'])->toBeInstanceOf(Carbon::class);
+    });
 });

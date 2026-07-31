@@ -198,6 +198,108 @@ describe('OutputSanitizer → classification precedence', function () {
     });
 });
 
+describe('OutputSanitizer → atomic object mode gating (report changes nothing)', function () {
+    it('preserves the original Carbon object — same identity — in report mode', function () {
+        $date = Carbon::parse('2026-07-31 09:00:00');
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_REPORT)))
+            ->sanitize($date, sanitizerTestToken('User.created_at'));
+
+        expect($result->value)->toBe($date);
+    });
+
+    it('preserves the original Carbon object — same identity — in off mode, with no warning', function () {
+        $date = Carbon::parse('2026-07-31 09:00:00');
+        $reported = [];
+        $validator = new SecurityValidator(
+            mode: SecurityValidator::MODE_OFF,
+            reporter: function (string $m, array $c) use (&$reported): void {
+                $reported[] = $m;
+            },
+        );
+
+        $result = (new OutputSanitizer($validator))->sanitize($date, sanitizerTestToken('User.created_at'));
+
+        expect($result->value)->toBe($date);
+        expect($reported)->toBe([]);
+    });
+
+    it('normalises the Carbon object to a string only in enforce mode', function () {
+        $date = Carbon::parse('2026-07-31 09:00:00');
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize($date, sanitizerTestToken('User.created_at'));
+
+        expect($result->value)->toBeString();
+        expect($result->value)->not->toBeInstanceOf(Carbon::class);
+    });
+
+    it('renders identical text across off, report and enforce — only the recorded value changes', function () {
+        $date = Carbon::parse('2026-07-31 09:00:00');
+        $token = sanitizerTestToken('User.created_at');
+
+        $offText = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_OFF)))
+            ->sanitize($date, $token)->text;
+        $reportText = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_REPORT)))
+            ->sanitize($date, $token)->text;
+        $enforceText = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize($date, $token)->text;
+
+        expect($offText)->toBe($reportText);
+        expect($reportText)->toBe($enforceText);
+    });
+
+    it('reports the pending type change in report mode, and the policy action in enforce mode', function () {
+        $reportedInReport = [];
+        $reportValidator = new SecurityValidator(
+            mode: SecurityValidator::MODE_REPORT,
+            reporter: function (string $m, array $c) use (&$reportedInReport): void {
+                $reportedInReport[] = $m;
+            },
+        );
+        (new OutputSanitizer($reportValidator))
+            ->sanitize(Carbon::parse('2026-07-31'), sanitizerTestToken('User.created_at'));
+
+        expect($reportedInReport)->toContain(
+            'mustache-resolver: atomic object would be normalized to string in enforce mode'
+        );
+
+        $reportedInEnforce = [];
+        $enforceValidator = new SecurityValidator(
+            mode: SecurityValidator::MODE_ENFORCE,
+            reporter: function (string $m, array $c) use (&$reportedInEnforce): void {
+                $reportedInEnforce[] = $m;
+            },
+        );
+        (new OutputSanitizer($enforceValidator))
+            ->sanitize(Carbon::parse('2026-07-31'), sanitizerTestToken('User.created_at'));
+
+        expect($reportedInEnforce)->toContain(
+            'mustache-resolver: atomic object normalized to string by security policy'
+        );
+    });
+
+    it('normalises Stringable elements in a projection only in enforce mode, matching the atomic-object rule', function () {
+        $label = new class implements Stringable
+        {
+            public function __toString(): string
+            {
+                return 'alpha';
+            }
+        };
+        $token = sanitizerTestToken('User.posts.label', TokenType::COLLECTION);
+
+        $reportResult = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_REPORT)))
+            ->sanitize([$label], $token);
+        $enforceResult = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize([$label], $token);
+
+        expect($reportResult->value)->toBe([$label]);
+        expect($enforceResult->value)->toBe(['alpha']);
+        expect($reportResult->text)->toBe($enforceResult->text);
+    });
+});
+
 describe('OutputSanitizer → filtering authorised containers', function () {
     it('strips blacklisted keys recursively when the container is allowed', function () {
         $sanitizer = new OutputSanitizer(

@@ -158,8 +158,15 @@ final class MustacheResolver
                 ->withStrict($strict);
         }
 
-        // Assume it's an object, wrap it in accessor
-        return ResolutionContext::fromArray(['model' => $data])
+        // Assume it's an object, wrap it in accessor. The validator MUST
+        // be passed here exactly as the array branch above does: for
+        // NULL_COALESCE tokens (hasSecurityPath() is false, so the
+        // sanitizer's path check never runs) and for DYNAMIC's runtime
+        // field-name resolution, this ArrayAccessor's own allowsPath() is
+        // the ONLY barrier protecting a plain-object data source — the
+        // sanitizer cannot reconstruct a path DYNAMIC only discovers at
+        // runtime, and was never meant to.
+        return ResolutionContext::fromArray(['model' => $data], $this->securityValidator)
             ->withStrict($strict);
     }
 }
