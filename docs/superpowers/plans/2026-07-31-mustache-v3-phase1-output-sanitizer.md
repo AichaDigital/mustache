@@ -1339,7 +1339,27 @@ Refs AID-733"
 
 ---
 
-### Task 8: Wire it into `MustacheResolver`, before the fork
+### Correction before Task 8 (2026-07-31)
+
+Wiring the sanitizer revealed three defects that only surface once both barriers run together. Tasks 8 and 9 are **merged** as a consequence: cabling, deleting the old path and updating the v2 contracts are one atomic change, and splitting them would require an intermediate commit with PHPStan and 13 tests deliberately red — not a reviewable unit.
+
+**1. The two barriers spoke different path languages.** The accessor receives what the resolver hands it, which is not the token's raw text. Verified per resolver:
+
+- `MODEL`, `RELATION`, `COLLECTION` → `implode('.', getFieldPath())` (`ModelResolver:41`, `RelationResolver:41`, `CollectionResolver:47`)
+- `TABLE` → `implode('.', getPath())`, prefix included (`TableResolver:41-43`)
+- `DYNAMIC` → no static canonical path: it reads an indicator and then accesses the name obtained at runtime (`DynamicFieldResolver:52,66`). The accessor already validates both accesses; evaluating `getFieldPath()` at the output barrier would check a different path and manufacture false positives.
+
+Left unfixed this is not merely noisy logs: `max_depth` was evaluated at two different depths, so `{{User.name}}` with `max_depth: 1` passed barrier 1 and was wrongly blocked by barrier 2.
+
+The mapping is encapsulated as `TokenInterface::getSecurityPath(): ?string` — not by scattering `getFieldPath()` through the sanitizer. `null` means "no static path to validate", and the sanitizer skips path validation for it. **`DYNAMIC` is removed from `hasSecurityPath()`** for this static validation.
+
+Deduplication keys on the canonical path. The raw token text stays available for presentation, and is used in the sanitizer's own events — containers, cycles, conversion failures — where it does not compete with barrier 1. Note the practical limit: the accessor usually reports first and does not know the full token, so the sanitizer's second warning is the one deduplicated away.
+
+**2. `report` mode altered the rendered text.** `sanitiseContainer()` returned the raw value with a text computed from the *filtered* array. The value survived intact but the template output did not — which destroys the whole point of report mode as a pre-upgrade measuring tool, and is what produced most of the legacy test failures. Report must return the original text.
+
+**3. The cycle ancestor stack did not include the root.** The root is an ancestor too, so `A → B → A` was cut one hop later than it should be. Correct before closing Phase 1.
+
+### Task 8+9 (merged): Wire it into `MustacheResolver`, before the fork
 
 **Files:**
 - Modify: `src/Core/MustacheResolver.php:41-79`
