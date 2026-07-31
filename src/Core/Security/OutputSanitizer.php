@@ -159,7 +159,9 @@ final readonly class OutputSanitizer
     {
         $array = $this->toArray($raw);
         $found = [];
-        $filtered = $this->stripBlacklisted($array, $found);
+        $baseDepth = count($token->getPath());
+        $pruned = false;
+        $filtered = $this->stripBlacklisted($array, $found, $baseDepth, $pruned);
 
         if ($found !== []) {
             $this->validator?->reportViolation(
@@ -170,8 +172,17 @@ final readonly class OutputSanitizer
             );
         }
 
+        if ($pruned) {
+            $this->validator?->reportViolation(
+                $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
+                    ? 'mustache-resolver: serialized content pruned at max_depth'
+                    : 'mustache-resolver: serialized content would be pruned at max_depth in enforce mode',
+                ['path' => $token->getRaw(), 'max_depth' => $baseDepth],
+            );
+        }
+
         if ($this->validator?->getMode() === SecurityValidator::MODE_REPORT) {
-            return new SanitizedValue($raw, $this->renderContainer($this->stripBlacklisted($array), $raw));
+            return new SanitizedValue($raw, $this->renderContainer($this->stripBlacklisted($array, depth: $baseDepth), $raw));
         }
 
         return new SanitizedValue($filtered, $this->renderContainer($filtered, $raw));
@@ -232,11 +243,22 @@ final readonly class OutputSanitizer
      * cannot escape filtering by being Stringable (see the class docblock on
      * isContainer() for why the precedence order matters).
      *
+     * Depth counts from the context root, not from this call's own
+     * recursion: $depth arrives seeded with the token's path depth (see
+     * sanitiseContainer()), so a shallow token serialising a deep structure
+     * is limited the same way a deep token is. At each step, before
+     * descending into a nested container, this checks the depth its
+     * children would land at — $depth + 2: one level for the container
+     * itself (the key currently being visited), one more for what is
+     * inside it — against max_depth. Exceeding it prunes that branch,
+     * replacing it with an empty array, rather than discarding the whole
+     * container the way Barrier 2's earlier gate does.
+     *
      * @param  array<mixed>  $data
      * @param  array<int, string>  $found
      * @return array<mixed>
      */
-    private function stripBlacklisted(array $data, array &$found = []): array
+    private function stripBlacklisted(array $data, array &$found = [], int $depth = 0, bool &$pruned = false): array
     {
         foreach ($data as $key => $value) {
             if (is_string($key) && $this->validator?->isAttributeBlacklisted($key)) {
@@ -247,7 +269,14 @@ final readonly class OutputSanitizer
             }
 
             if ($this->isContainer($value)) {
-                $data[$key] = $this->stripBlacklisted($this->toArray($value), $found);
+                if ($this->validator?->isDepthExceeded($depth + 2) === true) {
+                    $data[$key] = [];
+                    $pruned = true;
+
+                    continue;
+                }
+
+                $data[$key] = $this->stripBlacklisted($this->toArray($value), $found, $depth + 1, $pruned);
             }
         }
 

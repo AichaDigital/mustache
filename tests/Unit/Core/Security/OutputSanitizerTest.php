@@ -296,3 +296,36 @@ describe('OutputSanitizer → filtering authorised containers', function () {
         expect($result->text)->not->toContain('<b>');
     });
 });
+
+describe('OutputSanitizer → depth', function () {
+    it('prunes the branch that exceeds max_depth, keeping the rest', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(maxDepth: 3, mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        // token 'User.data' is depth 2; 'shallow' lands at 3, 'a.b' at 4
+        $result = $sanitizer->sanitize([
+            'shallow' => 'kept',
+            'a' => ['b' => 'too deep'],
+        ], sanitizerTestToken('User.data'));
+
+        expect($result->value)->toBe(['shallow' => 'kept', 'a' => []]);
+    });
+
+    it('reports the depth violation', function () {
+        $reported = [];
+        $validator = new SecurityValidator(
+            maxDepth: 3,
+            mode: SecurityValidator::MODE_ENFORCE,
+            reporter: function (string $m, array $c) use (&$reported): void {
+                $reported[] = $m;
+            },
+        );
+
+        (new OutputSanitizer($validator, allowContainerSerialization: true))
+            ->sanitize(['a' => ['b' => 'deep']], sanitizerTestToken('User.data'));
+
+        expect($reported)->toContain('mustache-resolver: serialized content pruned at max_depth');
+    });
+});
