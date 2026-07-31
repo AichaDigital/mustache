@@ -28,6 +28,21 @@ final readonly class OutputSanitizer
             return new SanitizedValue($raw, $this->render($raw));
         }
 
+        // A resolver that navigates on its own can return a plain scalar,
+        // clearing the accessor entirely; the string itself carries no mark
+        // of origin. Re-checking the token's own path here covers that case
+        // for tokens where a path is meaningful at all — hasSecurityPath()
+        // keeps function/variable/math/temporal tokens untouched, so their
+        // names are never run through attribute rules. allowsPath() already
+        // reports through the validator's reporter and already returns true
+        // in report mode, so no extra reporting or mode branching belongs
+        // here; the accessor may have checked the same path already, and
+        // deduplicating that is the reporter's job, wired by the service
+        // provider.
+        if ($token->getType()->hasSecurityPath() && ! $this->validator->allowsPath($token->getRaw())) {
+            return SanitizedValue::blocked();
+        }
+
         if ($this->isContainer($raw) && ! $this->maySerialiseWhole($raw)) {
             $this->validator->reportViolation(
                 $this->validator->getMode() === SecurityValidator::MODE_ENFORCE

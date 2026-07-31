@@ -632,3 +632,42 @@ describe('OutputSanitizer → special types', function () {
         expect($reported)->not->toContain('mustache-resolver: cyclic reference cut from serialized content');
     });
 });
+
+describe('OutputSanitizer → token path validation', function () {
+    it('blocks a scalar returned under a blacklisted path', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_ENFORCE)
+        );
+
+        $result = $sanitizer->sanitize('hunter2', sanitizerTestToken('User.password'));
+
+        expect($result->blocked)->toBeTrue();
+        expect($result->text)->toBe('');
+    });
+
+    it('blocks a blacklisted segment behind a relation', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_ENFORCE)
+        );
+
+        expect($sanitizer->sanitize('x', sanitizerTestToken('User.owner.password'))->blocked)->toBeTrue();
+    });
+
+    it('does not apply attribute rules to tokens without a security path', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_ENFORCE)
+        );
+
+        $result = $sanitizer->sanitize('ok', sanitizerTestToken('password()', TokenType::FUNCTION));
+
+        expect($result->blocked)->toBeFalse();
+    });
+
+    it('does not block in report mode', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_REPORT)
+        );
+
+        expect($sanitizer->sanitize('hunter2', sanitizerTestToken('User.password'))->blocked)->toBeFalse();
+    });
+});
