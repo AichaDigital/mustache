@@ -298,6 +298,89 @@ describe('OutputSanitizer → atomic object mode gating (report changes nothing)
         expect($enforceResult->value)->toBe(['alpha']);
         expect($reportResult->text)->toBe($enforceResult->text);
     });
+
+    it('reports the projection type change in report mode, and the effective normalisation in enforce mode', function () {
+        $date = Carbon::parse('2026-07-31 09:00:00');
+        $token = sanitizerTestToken('User.posts.published_at', TokenType::COLLECTION);
+
+        $reportedInReport = [];
+        $reportValidator = new SecurityValidator(
+            mode: SecurityValidator::MODE_REPORT,
+            reporter: function (string $m, array $c) use (&$reportedInReport): void {
+                $reportedInReport[] = $m;
+            },
+        );
+        $reportResult = (new OutputSanitizer($reportValidator))->sanitize([$date], $token);
+
+        // report: array<Stringable> — identity and type preserved.
+        expect($reportResult->value)->toBe([$date]);
+        expect($reportResult->value[0])->toBeInstanceOf(Carbon::class);
+        expect($reportedInReport)->toContain(
+            'mustache-resolver: atomic object would be normalized to string in enforce mode'
+        );
+
+        $reportedInEnforce = [];
+        $enforceValidator = new SecurityValidator(
+            mode: SecurityValidator::MODE_ENFORCE,
+            reporter: function (string $m, array $c) use (&$reportedInEnforce): void {
+                $reportedInEnforce[] = $m;
+            },
+        );
+        $enforceResult = (new OutputSanitizer($enforceValidator))->sanitize([$date], $token);
+
+        // enforce: array<string> — the effective normalisation, logged.
+        expect($enforceResult->value[0])->toBeString();
+        expect($enforceResult->value[0])->not->toBeInstanceOf(Carbon::class);
+        expect($enforceResult->text)->toBe($reportResult->text);
+        expect($reportedInEnforce)->toContain(
+            'mustache-resolver: atomic object normalized to string by security policy'
+        );
+    });
+
+    it('reports nothing for a projection of pure scalars, enums, or an empty list', function () {
+        $token = sanitizerTestToken('User.posts.title', TokenType::COLLECTION);
+
+        foreach ([[], ['First Post', 'Second Post'], [TokenType::MODEL, TokenType::TABLE]] as $list) {
+            $reported = [];
+            $validator = new SecurityValidator(
+                mode: SecurityValidator::MODE_REPORT,
+                reporter: function (string $m, array $c) use (&$reported): void {
+                    $reported[] = $m;
+                },
+            );
+
+            (new OutputSanitizer($validator))->sanitize($list, $token);
+
+            expect($reported)->toBe([]);
+        }
+    });
+
+    it('emits exactly ONE warning for a projection, grouped per token, not once per normalised element', function () {
+        $dates = [Carbon::parse('2026-01-01'), Carbon::parse('2026-02-01'), Carbon::parse('2026-03-01')];
+        $token = sanitizerTestToken('User.posts.published_at', TokenType::COLLECTION);
+
+        $reportedInReport = [];
+        $reportValidator = new SecurityValidator(
+            mode: SecurityValidator::MODE_REPORT,
+            reporter: function (string $m, array $c) use (&$reportedInReport): void {
+                $reportedInReport[] = $m;
+            },
+        );
+        (new OutputSanitizer($reportValidator))->sanitize($dates, $token);
+
+        expect($reportedInReport)->toHaveCount(1);
+
+        $reportedInEnforce = [];
+        $enforceValidator = new SecurityValidator(
+            mode: SecurityValidator::MODE_ENFORCE,
+            reporter: function (string $m, array $c) use (&$reportedInEnforce): void {
+                $reportedInEnforce[] = $m;
+            },
+        );
+        (new OutputSanitizer($enforceValidator))->sanitize($dates, $token);
+
+        expect($reportedInEnforce)->toHaveCount(1);
+    });
 });
 
 describe('OutputSanitizer → filtering authorised containers', function () {

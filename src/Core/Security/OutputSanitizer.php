@@ -83,7 +83,7 @@ final readonly class OutputSanitizer
         // is trusted code, the same limit already accepted for a resolver
         // that returns a bare scalar under an innocuous token.
         if ($this->isScalarProjection($raw)) {
-            return $this->sanitizeScalarProjection($raw);
+            return $this->sanitizeScalarProjection($raw, $token);
         }
 
         if ($this->isContainer($raw) && ! $this->maySerialiseWhole($raw)) {
@@ -255,24 +255,60 @@ final readonly class OutputSanitizer
      * renders exactly as it always did. Never renderContainer()'s JSON,
      * which is for authorised containers, not projections.
      *
+     * Reporting mirrors sanitize()'s atomic-object branch exactly, and
+     * for the same reason: a measuring tool that hides an upcoming type
+     * change from a consumer planning their migration is not measuring
+     * anything. Two things are deliberately NOT per-element:
+     *   - The scan for "is there anything to report" short-circuits on
+     *     the first atomic object found; a pure-scalar/enum list, or an
+     *     empty one, produces no violation and no report call at all.
+     *   - The report itself fires ONCE for the whole list, grouped by
+     *     TOKEN, not once per offending element — a wildcard over a large
+     *     collection must not amplify one policy decision into one log
+     *     line per item.
+     *
      * @param  array<int, mixed>  $list
      */
-    private function sanitizeScalarProjection(array $list): SanitizedValue
+    private function sanitizeScalarProjection(array $list, TokenInterface $token): SanitizedValue
     {
         $text = $this->render($list);
 
-        if ($this->validator?->getMode() !== SecurityValidator::MODE_ENFORCE) {
+        $hasAtomicObject = false;
+
+        foreach ($list as $element) {
+            if (is_object($element) && ! $element instanceof \UnitEnum) {
+                $hasAtomicObject = true;
+
+                break;
+            }
+        }
+
+        if (! $hasAtomicObject) {
             return new SanitizedValue($list, $text);
         }
 
-        $normalised = array_map(
-            fn (mixed $element): mixed => (is_object($element) && ! $element instanceof \UnitEnum)
-                ? $this->render($element)
-                : $element,
-            $list,
+        if ($this->validator?->getMode() === SecurityValidator::MODE_ENFORCE) {
+            $this->validator->reportViolation(
+                'mustache-resolver: atomic object normalized to string by security policy',
+                ['path' => $token->getRaw(), 'type' => 'projection'],
+            );
+
+            $normalised = array_map(
+                fn (mixed $element): mixed => (is_object($element) && ! $element instanceof \UnitEnum)
+                    ? $this->render($element)
+                    : $element,
+                $list,
+            );
+
+            return new SanitizedValue($normalised, $text);
+        }
+
+        $this->validator?->reportViolation(
+            'mustache-resolver: atomic object would be normalized to string in enforce mode',
+            ['path' => $token->getRaw(), 'type' => 'projection'],
         );
 
-        return new SanitizedValue($normalised, $text);
+        return new SanitizedValue($list, $text);
     }
 
     /**
