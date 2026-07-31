@@ -174,17 +174,31 @@ final readonly class OutputSanitizer
 
         if ($array === null) {
             $this->validator?->reportViolation(
-                'mustache-resolver: container could not be converted safely, blocked',
+                $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
+                    ? 'mustache-resolver: container could not be converted safely, blocked'
+                    : 'mustache-resolver: container could not be converted safely, would be blocked in enforce mode',
                 ['path' => $token->getRaw(), 'type' => get_debug_type($raw)],
             );
 
-            return SanitizedValue::blocked();
+            if ($this->validator?->getMode() === SecurityValidator::MODE_ENFORCE) {
+                return SanitizedValue::blocked();
+            }
+
+            // Report observes without altering: the original object survives
+            // with its own identity and the rendering it would have had with
+            // security off — never a partially-converted array, and never
+            // ->blocked(). Mirrors the container-blocked gate in sanitize().
+            $text = $this->render($raw);
+
+            return new SanitizedValue($raw, $text);
         }
 
         $found = [];
         $baseDepth = count($token->getPath());
-        $pruned = false;
-        $filtered = $this->stripBlacklisted($array, $found, $baseDepth, $pruned);
+        $depthPruned = false;
+        $cycleCut = false;
+        $conversionFailed = false;
+        $filtered = $this->stripBlacklisted($array, $found, $baseDepth, $depthPruned, $cycleCut, $conversionFailed);
 
         if ($found !== []) {
             $this->validator?->reportViolation(
@@ -195,7 +209,7 @@ final readonly class OutputSanitizer
             );
         }
 
-        if ($pruned) {
+        if ($depthPruned) {
             $this->validator?->reportViolation(
                 $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
                     ? 'mustache-resolver: serialized content pruned at max_depth'
@@ -204,8 +218,26 @@ final readonly class OutputSanitizer
             );
         }
 
+        if ($cycleCut) {
+            $this->validator?->reportViolation(
+                $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
+                    ? 'mustache-resolver: cyclic reference cut from serialized content'
+                    : 'mustache-resolver: cyclic reference would be cut from serialized content in enforce mode',
+                ['path' => $token->getRaw()],
+            );
+        }
+
+        if ($conversionFailed) {
+            $this->validator?->reportViolation(
+                $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
+                    ? 'mustache-resolver: nested value could not be converted safely, dropped'
+                    : 'mustache-resolver: nested value could not be converted safely, would be dropped in enforce mode',
+                ['path' => $token->getRaw()],
+            );
+        }
+
         if ($this->validator?->getMode() === SecurityValidator::MODE_REPORT) {
-            return new SanitizedValue($raw, $this->renderContainer($this->stripBlacklisted($array, $found, $baseDepth, $pruned), $raw));
+            return new SanitizedValue($raw, $this->renderContainer($this->stripBlacklisted($array, $found, $baseDepth, $depthPruned, $cycleCut, $conversionFailed), $raw));
         }
 
         return new SanitizedValue($filtered, $this->renderContainer($filtered, $raw));
@@ -312,21 +344,34 @@ final readonly class OutputSanitizer
      * replacing it with an empty array, rather than discarding the whole
      * container the way Barrier 2's earlier gate does.
      *
-     * Cycles: $seen tracks objects already expanded in this traversal. An
-     * object is attached right before it is expanded into an array and
-     * recursed into; if it is encountered again (the structure loops back
-     * to it), it is cut to null and reported as pruned instead of being
-     * expanded a second time — that second expansion is what would recurse
-     * forever. $seen defaults fresh per top-level call, which is correct:
-     * two independent traversals of the same data (e.g. the extra report-
-     * mode pass in sanitiseContainer()) must not treat one call's visited
-     * set as carrying over into the other's.
+     * Cycles: $seen holds the CURRENT ANCESTOR CHAIN, not every object ever
+     * seen. An object is attached right before its branch is entered
+     * (converted and recursed into) and detached — via try/finally, so an
+     * exception thrown anywhere in that branch still unwinds the stack —
+     * once that branch is fully processed. Only a re-encounter of an object
+     * still on that chain (A → … → A) is a cycle; the same object appearing
+     * a second time as a sibling, or in an unrelated branch, is not — by the
+     * time its second occurrence is visited, its first occurrence has
+     * already been detached, so it serialises again normally. That is data
+     * (e.g. the same related model under two attributes), not a cycle, and
+     * dropping it would be a silent, misleading loss. $seen defaults fresh
+     * per top-level call, which is correct: two independent traversals of
+     * the same data (e.g. the extra report-mode pass in sanitiseContainer())
+     * must not treat one call's ancestor chain as carrying over into the
+     * other's.
      *
-     * A nested toArray() failure (see toArray()'s own contract) degrades to
-     * an empty array rather than blocking, unlike the root-level failure
-     * guarded in sanitiseContainer(): there is no SanitizedValue::blocked()
-     * to return for a single key partway through a larger structure, so the
-     * offending branch is simply dropped.
+     * Three causes can alter a value here, and they are tracked in three
+     * separate out-parameters so a caller's report can never attribute one
+     * to another: $depthPruned (exceeding max_depth — replaces the branch
+     * with []), $cycleCut (an ancestor re-encountered — replaces the value
+     * with null), $conversionFailed (a nested toArray() returning null —
+     * see toArray()'s own contract — degrades to an empty array). Only the
+     * first two are visible in ->value's shape; the third looks identical
+     * to an object that legitimately had no properties, which is why it is
+     * still reported separately even though it is not otherwise observable.
+     * Unlike the root-level failure guarded in sanitiseContainer(), there is
+     * no SanitizedValue::blocked() to return for a single key partway
+     * through a larger structure — the offending branch is simply dropped.
      *
      * @param  array<mixed>  $data
      * @param  array<int, string>  $found
@@ -337,7 +382,9 @@ final readonly class OutputSanitizer
         array $data,
         array &$found = [],
         int $depth = 0,
-        bool &$pruned = false,
+        bool &$depthPruned = false,
+        bool &$cycleCut = false,
+        bool &$conversionFailed = false,
         ?\SplObjectStorage $seen = null,
     ): array {
         $seen ??= new \SplObjectStorage;
@@ -350,6 +397,8 @@ final readonly class OutputSanitizer
                 continue;
             }
 
+            $ancestor = null;
+
             if (is_object($value)) {
                 if (! $this->isContainer($value)) {
                     $data[$key] = $value instanceof \UnitEnum ? $value : $this->render($value);
@@ -359,24 +408,45 @@ final readonly class OutputSanitizer
 
                 if ($seen->contains($value)) {
                     $data[$key] = null;
-                    $pruned = true;
+                    $cycleCut = true;
 
                     continue;
                 }
 
-                $seen->attach($value);
-                $value = $this->toArray($value) ?? [];
+                $ancestor = $value;
+                $seen->attach($ancestor);
             }
 
-            if (is_array($value)) {
-                if ($this->validator?->isDepthExceeded($depth + 2) === true) {
-                    $data[$key] = [];
-                    $pruned = true;
+            try {
+                if ($ancestor !== null) {
+                    $value = $this->toArray($ancestor);
 
-                    continue;
+                    if ($value === null) {
+                        $data[$key] = [];
+                        $conversionFailed = true;
+
+                        continue;
+                    }
                 }
 
-                $data[$key] = $this->stripBlacklisted($value, $found, $depth + 1, $pruned, $seen);
+                if (is_array($value)) {
+                    if ($this->validator?->isDepthExceeded($depth + 2) === true) {
+                        $data[$key] = [];
+                        $depthPruned = true;
+
+                        continue;
+                    }
+
+                    $data[$key] = $this->stripBlacklisted($value, $found, $depth + 1, $depthPruned, $cycleCut, $conversionFailed, $seen);
+                }
+            } finally {
+                // Leaving this branch: whatever is still ahead in the loop
+                // (siblings, or the caller's own siblings once this call
+                // returns) must see $ancestor as available again, cycle or
+                // not, success or exception.
+                if ($ancestor !== null) {
+                    $seen->detach($ancestor);
+                }
             }
         }
 

@@ -403,7 +403,66 @@ describe('OutputSanitizer → special types', function () {
         $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE), allowContainerSerialization: true))
             ->sanitize($bad, sanitizerTestToken('User.broken'));
 
+        // Never a partially converted array: whatever local state toArray()'s
+        // own implementation built before throwing is discarded, not leaked.
+        expect($result->value)->toBeNull();
+        expect($result->text)->toBe('');
         expect($result->blocked)->toBeTrue();
+    });
+
+    it('does not alter a container it could not convert, in report mode', function () {
+        $reported = [];
+        $bad = new class implements Arrayable, Stringable
+        {
+            public function toArray(): array
+            {
+                throw new RuntimeException('boom');
+            }
+
+            public function __toString(): string
+            {
+                return 'legacy-rendering';
+            }
+        };
+
+        $validator = new SecurityValidator(
+            mode: SecurityValidator::MODE_REPORT,
+            reporter: function (string $m, array $c) use (&$reported): void {
+                $reported[] = $m;
+            },
+        );
+
+        $result = (new OutputSanitizer($validator, allowContainerSerialization: true))
+            ->sanitize($bad, sanitizerTestToken('User.broken'));
+
+        // Report observes, it does not modify: the SAME object survives with
+        // its own identity (not a clone, not a partial array), the rendering
+        // it would have had with security off, and blocked stays false — the
+        // invariant that makes report mode usable as a pre-upgrade measure.
+        expect($result->value)->toBe($bad);
+        expect($result->blocked)->toBeFalse();
+        expect($result->text)->toBe('legacy-rendering');
+        expect($reported)->toContain('mustache-resolver: container could not be converted safely, would be blocked in enforce mode');
+    });
+
+    it('never attempts conversion in off mode', function () {
+        $spy = new class implements Arrayable
+        {
+            public bool $called = false;
+
+            public function toArray(): array
+            {
+                $this->called = true;
+
+                return ['x' => 1];
+            }
+        };
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_OFF)))
+            ->sanitize($spy, sanitizerTestToken('User.thing'));
+
+        expect($spy->called)->toBeFalse();
+        expect($result->value)->toBe($spy);
     });
 
     it('converts a JsonSerializable-only container through jsonSerialize()', function () {
@@ -452,5 +511,124 @@ describe('OutputSanitizer → special types', function () {
             ->sanitize($a, sanitizerTestToken('User.node'));
 
         expect($result->blocked)->toBeFalse();
+    });
+
+    it('cuts a mutual cycle between two objects', function () {
+        $a = new stdClass;
+        $b = new stdClass;
+        $a->other = $b;
+        $b->other = $a;
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE), allowContainerSerialization: true))
+            ->sanitize($a, sanitizerTestToken('User.node'));
+
+        expect($result->blocked)->toBeFalse();
+    });
+
+    it('reports a cut cycle with its own message, not the depth one', function () {
+        $reported = [];
+        $a = new stdClass;
+        $a->name = 'a';
+        $a->self = $a;
+
+        $validator = new SecurityValidator(
+            mode: SecurityValidator::MODE_ENFORCE,
+            reporter: function (string $m, array $c) use (&$reported): void {
+                $reported[] = $m;
+            },
+        );
+
+        (new OutputSanitizer($validator, allowContainerSerialization: true))
+            ->sanitize($a, sanitizerTestToken('User.node'));
+
+        expect($reported)->toContain('mustache-resolver: cyclic reference cut from serialized content');
+        expect($reported)->not->toContain('mustache-resolver: serialized content pruned at max_depth');
+    });
+
+    it('reports a depth prune as depth, never mislabels it as a cycle', function () {
+        $reported = [];
+        $validator = new SecurityValidator(
+            maxDepth: 3,
+            mode: SecurityValidator::MODE_ENFORCE,
+            reporter: function (string $m, array $c) use (&$reported): void {
+                $reported[] = $m;
+            },
+        );
+
+        // No repeated object anywhere here — a plain, non-cyclic structure
+        // that simply exceeds max_depth. Must never surface the cycle
+        // wording; the shared $pruned flag this fix replaces would have
+        // made either message possible for either cause.
+        (new OutputSanitizer($validator, allowContainerSerialization: true))
+            ->sanitize(['a' => ['b' => 'too deep']], sanitizerTestToken('User.data'));
+
+        expect($reported)->toContain('mustache-resolver: serialized content pruned at max_depth');
+        expect($reported)->not->toContain('mustache-resolver: cyclic reference cut from serialized content');
+    });
+
+    it('keeps the same object under two sibling keys — not a cycle', function () {
+        $company = new stdClass;
+        $company->name = 'Acme';
+
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        $result = $sanitizer->sanitize(['a' => $company, 'b' => $company], sanitizerTestToken('User.data'));
+
+        expect($result->value)->toBe([
+            'a' => ['name' => 'Acme'],
+            'b' => ['name' => 'Acme'],
+        ]);
+    });
+
+    it('keeps the same object repeated in different branches — not a cycle', function () {
+        $company = new stdClass;
+        $company->name = 'Acme';
+
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        $result = $sanitizer->sanitize([
+            'group' => ['lead' => $company],
+            'other' => ['owner' => $company],
+        ], sanitizerTestToken('User.data'));
+
+        expect($result->value)->toBe([
+            'group' => ['lead' => ['name' => 'Acme']],
+            'other' => ['owner' => ['name' => 'Acme']],
+        ]);
+    });
+
+    it('detaches the ancestor after a failed nested conversion, so a repeated sibling is not mistaken for a cycle', function () {
+        $reported = [];
+        $bad = new class implements Arrayable
+        {
+            public function toArray(): array
+            {
+                throw new RuntimeException('boom');
+            }
+        };
+
+        $validator = new SecurityValidator(
+            mode: SecurityValidator::MODE_ENFORCE,
+            reporter: function (string $m, array $c) use (&$reported): void {
+                $reported[] = $m;
+            },
+        );
+
+        $result = (new OutputSanitizer($validator, allowContainerSerialization: true))
+            ->sanitize(['a' => $bad, 'b' => $bad], sanitizerTestToken('User.data'));
+
+        // If the ancestor stack were not cleaned up after 'a' failed, 'b'
+        // would see the same object still marked as an active ancestor and
+        // wrongly report a cut cycle (null) instead of attempting — and
+        // independently failing — conversion again.
+        expect($result->value)->toBe(['a' => [], 'b' => []]);
+        expect($reported)->toContain('mustache-resolver: nested value could not be converted safely, dropped');
+        expect($reported)->not->toContain('mustache-resolver: cyclic reference cut from serialized content');
     });
 });
