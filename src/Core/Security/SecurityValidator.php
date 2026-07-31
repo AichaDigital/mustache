@@ -171,6 +171,14 @@ final readonly class SecurityValidator
     }
 
     /**
+     * Get the configured maximum depth.
+     */
+    public function getMaxDepth(): int
+    {
+        return $this->maxDepth;
+    }
+
+    /**
      * Report a security violation through the configured reporter.
      *
      * Public entry point for components outside the validator (e.g. the

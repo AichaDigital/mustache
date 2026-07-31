@@ -177,7 +177,7 @@ final readonly class OutputSanitizer
                 $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
                     ? 'mustache-resolver: serialized content pruned at max_depth'
                     : 'mustache-resolver: serialized content would be pruned at max_depth in enforce mode',
-                ['path' => $token->getRaw(), 'max_depth' => $baseDepth],
+                ['path' => $token->getRaw(), 'token_depth' => $baseDepth, 'max_depth' => $this->validator->getMaxDepth()],
             );
         }
 

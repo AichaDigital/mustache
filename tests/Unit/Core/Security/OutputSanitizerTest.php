@@ -328,4 +328,22 @@ describe('OutputSanitizer → depth', function () {
 
         expect($reported)->toContain('mustache-resolver: serialized content pruned at max_depth');
     });
+
+    it('does not prune in report mode, but reports what would be pruned', function () {
+        $reported = [];
+        $validator = new SecurityValidator(
+            maxDepth: 3,
+            mode: SecurityValidator::MODE_REPORT,
+            reporter: function (string $m, array $c) use (&$reported): void {
+                $reported[] = $m;
+            },
+        );
+
+        $result = (new OutputSanitizer($validator, allowContainerSerialization: true))
+            ->sanitize(['a' => ['b' => 'too deep']], sanitizerTestToken('User.data'));
+
+        // Report mode reports, it does not modify: value stays raw and unpruned.
+        expect($result->value)->toBe(['a' => ['b' => 'too deep']]);
+        expect($reported)->toContain('mustache-resolver: serialized content would be pruned at max_depth in enforce mode');
+    });
 });
