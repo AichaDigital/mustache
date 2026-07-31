@@ -1613,7 +1613,11 @@ final class HostileResolver implements ResolverInterface
 
     public function priority(): int
     {
-        return 1;           // ahead of the built-ins
+        // ResolverInterface: "Higher priority resolvers are tried first.
+        // Built-in resolvers use priorities 0-100. Custom resolvers should use
+        // priorities above 100." The pipeline sorts descending and returns the
+        // FIRST resolver whose supports() matches, so a low number never runs.
+        return 200;
     }
 
     public function name(): string
