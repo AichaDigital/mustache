@@ -126,6 +126,38 @@ enum TokenType: string
     }
 
     /**
+     * Whether this token's path is data navigation subject to security policy.
+     *
+     * Deliberately separate from requiresAccessor(): that answers how a token
+     * is resolved, this answers whether attribute rules apply to it. Running
+     * the blacklist over a function or variable token would produce false
+     * positives on names the consumer owns entirely.
+     *
+     * The match is exhaustive on purpose — a new case must choose a regime.
+     */
+    public function hasSecurityPath(): bool
+    {
+        return match ($this) {
+            self::MODEL,
+            self::TABLE,
+            self::RELATION,
+            self::DYNAMIC,
+            self::COLLECTION => true,
+            self::FUNCTION,
+            self::VARIABLE,
+            self::MATH,
+            self::NULL_COALESCE,
+            self::LITERAL,
+            self::UNKNOWN,
+            self::COMPOUND,
+            self::USE_DECLARATION,
+            self::LOCAL_VARIABLE,
+            self::FORMATTER,
+            self::TEMPORAL => false,
+        };
+    }
+
+    /**
      * Check if this type can have nested paths.
      */
     public function supportsNesting(): bool
