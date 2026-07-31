@@ -431,13 +431,13 @@ describe('OutputSanitizer → containers', function () {
     });
 
     it('allows an object that declares itself safe, with the flag off', function () {
-        $safe = new class implements \AichaDigital\MustacheResolver\Contracts\SafeForTemplateSerialization
+        // Arrayable on purpose: a Stringable-only class is classified atomic and
+        // would never reach the container path, so it would not exercise the escape.
+        $safe = new class implements \AichaDigital\MustacheResolver\Contracts\SafeForTemplateSerialization, \Illuminate\Contracts\Support\Arrayable
         {
-            public string $label = 'ok';
-
-            public function __toString(): string
+            public function toArray(): array
             {
-                return $this->label;
+                return ['label' => 'ok'];
             }
         };
 
@@ -445,7 +445,87 @@ describe('OutputSanitizer → containers', function () {
             ->sanitize($safe, sanitizerTestToken('User.badge'));
 
         expect($result->blocked)->toBeFalse();
-        expect($result->text)->toBe('ok');
+    });
+});
+
+describe('OutputSanitizer → classification precedence', function () {
+    it('blocks an Arrayable that is also Stringable', function () {
+        $both = new class implements \Illuminate\Contracts\Support\Arrayable, \Stringable
+        {
+            public function toArray(): array
+            {
+                return ['secret' => 'x'];
+            }
+
+            public function __toString(): string
+            {
+                return 'looks harmless';
+            }
+        };
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize($both, sanitizerTestToken('User.thing'));
+
+        expect($result->blocked)->toBeTrue();
+    });
+
+    it('blocks a real Collection', function () {
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize(new \Illuminate\Support\Collection(['a' => 1]), sanitizerTestToken('User.items'));
+
+        expect($result->blocked)->toBeTrue();
+    });
+
+    it('blocks a real Eloquent model', function () {
+        $model = new \Workbench\App\Models\User(['name' => 'John']);
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize($model, sanitizerTestToken('User.self'));
+
+        expect($result->blocked)->toBeTrue();
+    });
+
+    it('does not let the global flag authorise a model', function () {
+        $model = new \Workbench\App\Models\User(['name' => 'John']);
+
+        $result = (new OutputSanitizer(
+            new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        ))->sanitize($model, sanitizerTestToken('User.self'));
+
+        expect($result->blocked)->toBeTrue();
+    });
+
+    it('treats Carbon as atomic and records it as a string, not as an object', function () {
+        $date = \Carbon\Carbon::parse('2026-07-31 09:00:00');
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize($date, sanitizerTestToken('User.created_at'));
+
+        expect($result->blocked)->toBeFalse();
+        expect($result->value)->toBeString();
+        expect($result->value)->toBe($result->text);
+    });
+
+    it('normalises a Stringable JsonSerializable to a string rather than blocking it', function () {
+        $money = new class implements \Stringable, \JsonSerializable
+        {
+            public function __toString(): string
+            {
+                return '10.00 EUR';
+            }
+
+            public function jsonSerialize(): array
+            {
+                return ['amount' => 1000, 'currency' => 'EUR'];
+            }
+        };
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize($money, sanitizerTestToken('User.balance'));
+
+        expect($result->blocked)->toBeFalse();
+        expect($result->value)->toBe('10.00 EUR');
     });
 });
 ```
@@ -501,11 +581,37 @@ Replace `sanitize()` in `src/Core/Security/OutputSanitizer.php`:
             }
         }
 
+        // An object treated as atomic must not survive raw into resolvedValues:
+        // TranslationResult::toArray() would keep the object, and a later
+        // serialization could expose the structure this barrier just decided
+        // not to expose. Text and recorded value become the same string.
+        if (is_object($raw) && ! $raw instanceof \UnitEnum && ! $this->isContainer($raw)) {
+            $text = $this->render($raw);
+
+            return new SanitizedValue($text, $text);
+        }
+
         return new SanitizedValue($raw, $this->render($raw));
     }
 
     /**
-     * Whether the value would expose a whole data structure rather than a field.
+     * Structural classification, in strict precedence order.
+     *
+     * Order matters and is the whole point. PHP 8 makes every class with
+     * __toString() implicitly Stringable, so Eloquent models and collections
+     * are Stringable — testing that first would classify the two types this
+     * barrier exists for as harmless scalars.
+     *
+     *   array                     → container
+     *   non-object                → scalar
+     *   UnitEnum                  → scalar
+     *   Arrayable or Traversable  → container
+     *   Stringable                → atomic renderable
+     *   any remaining object      → container
+     *
+     * JsonSerializable is deliberately absent: it is a conversion mechanism,
+     * not evidence of being a container. Carbon implements it and is an
+     * atomic value.
      */
     private function isContainer(mixed $value): bool
     {
@@ -513,16 +619,45 @@ Replace `sanitize()` in `src/Core/Security/OutputSanitizer.php`:
             return true;
         }
 
-        return is_object($value) && ! $value instanceof \Stringable && ! $value instanceof \UnitEnum;
+        if (! is_object($value)) {
+            return false;
+        }
+
+        if ($value instanceof \UnitEnum) {
+            return false;
+        }
+
+        if ($value instanceof \Illuminate\Contracts\Support\Arrayable || $value instanceof \Traversable) {
+            return true;
+        }
+
+        if ($value instanceof \Stringable) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
      * Whether whole serialisation is permitted for this value.
+     *
+     * The two escapes are not interchangeable: the global flag exists for
+     * plain arrays and collections, which cannot implement an interface. A
+     * model has a class, so it opts in through that class or not at all —
+     * letting the flag authorise models would collapse the distinction.
      */
     private function maySerialiseWhole(mixed $value): bool
     {
-        return $this->allowContainerSerialization
-            || $value instanceof \AichaDigital\MustacheResolver\Contracts\SafeForTemplateSerialization;
+        if ($value instanceof \AichaDigital\MustacheResolver\Contracts\SafeForTemplateSerialization) {
+            return true;
+        }
+
+        if (! $this->allowContainerSerialization) {
+            return false;
+        }
+
+        return ! (class_exists(\Illuminate\Database\Eloquent\Model::class)
+            && $value instanceof \Illuminate\Database\Eloquent\Model);
     }
 ```
 
@@ -603,6 +738,19 @@ describe('OutputSanitizer → filtering authorised containers', function () {
 
         expect($result->value)->toBe(['password' => 'x']);
         expect($reported)->not->toBeEmpty();
+    });
+
+    it('filters a model nested inside an authorised container', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        $nested = new \Workbench\App\Models\User(['name' => 'John', 'password' => 'hunter2']);
+
+        $result = $sanitizer->sanitize(['owner' => $nested], sanitizerTestToken('User.data'));
+
+        expect(json_encode($result->value))->not->toContain('hunter2');
     });
 
     it('renders an authorised container as JSON, not as an imploded list', function () {
@@ -1025,12 +1173,16 @@ For cycles, thread an `SplObjectStorage` through the recursion. Replace `stripBl
                 continue;
             }
 
-            // Scalars-by-another-name never recurse
-            if (is_object($value) && ($value instanceof \Stringable || $value instanceof \UnitEnum)) {
-                continue;
-            }
-
             if (is_object($value)) {
+                // Same classification helper as the root value. Using a different
+                // rule here is how a model nested inside an authorised array would
+                // escape filtering by virtue of being Stringable.
+                if (! $this->isContainer($value)) {
+                    $data[$key] = $value instanceof \UnitEnum ? $value : $this->render($value);
+
+                    continue;
+                }
+
                 if ($seen->contains($value)) {
                     $data[$key] = null;
                     $pruned = true;
