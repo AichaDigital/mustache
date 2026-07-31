@@ -304,11 +304,13 @@ describe('OutputSanitizer → depth', function () {
             allowContainerSerialization: true,
         );
 
-        // token 'User.data' is depth 2; 'shallow' lands at 3, 'a.b' at 4
+        // token 'User.data.nested' has getSecurityPath() 'data.nested' —
+        // depth 2, the SAME count allowsPath() would give that path — so
+        // baseDepth seeds at 2: 'shallow' lands at 3, 'a.b' at 4
         $result = $sanitizer->sanitize([
             'shallow' => 'kept',
             'a' => ['b' => 'too deep'],
-        ], sanitizerTestToken('User.data'));
+        ], sanitizerTestToken('User.data.nested'));
 
         expect($result->value)->toBe(['shallow' => 'kept', 'a' => []]);
     });
@@ -324,7 +326,7 @@ describe('OutputSanitizer → depth', function () {
         );
 
         (new OutputSanitizer($validator, allowContainerSerialization: true))
-            ->sanitize(['a' => ['b' => 'deep']], sanitizerTestToken('User.data'));
+            ->sanitize(['a' => ['b' => 'deep']], sanitizerTestToken('User.data.nested'));
 
         expect($reported)->toContain('mustache-resolver: serialized content pruned at max_depth');
     });
@@ -340,11 +342,45 @@ describe('OutputSanitizer → depth', function () {
         );
 
         $result = (new OutputSanitizer($validator, allowContainerSerialization: true))
-            ->sanitize(['a' => ['b' => 'too deep']], sanitizerTestToken('User.data'));
+            ->sanitize(['a' => ['b' => 'too deep']], sanitizerTestToken('User.data.nested'));
 
         // Report mode reports, it does not modify: value stays raw and unpruned.
         expect($result->value)->toBe(['a' => ['b' => 'too deep']]);
         expect($reported)->toContain('mustache-resolver: serialized content would be pruned at max_depth in enforce mode');
+    });
+
+    it('seeds the container walk from the same depth the path check itself measures, so a path allowed at max_depth is not pruned one level early', function () {
+        // Finding 2 (AID-733 merged-task review): before this fix,
+        // sanitiseContainer() seeded $baseDepth from count($token->getPath())
+        // — the path WITH the root prefix — while the path check above it
+        // used getSecurityPath() — the path WITHOUT it. A 1-field-segment
+        // token like 'User.department' counted as depth 2 for the container
+        // walk but depth 1 for allowsPath(), so the walk pruned one level
+        // earlier than any path of the same shape would have been blocked.
+        $validator = new SecurityValidator(maxDepth: 3, mode: SecurityValidator::MODE_ENFORCE);
+
+        // Ground truth, asserted first: a 3-segment path is allowed, a
+        // 4-segment one is not. The container-walk assertion below must
+        // land on exactly this boundary, not an assumption about it.
+        expect($validator->allowsPath('container.level1.level2'))->toBeTrue();
+        expect($validator->allowsPath('container.level1.level2.level3'))->toBeFalse();
+
+        $sanitizer = new OutputSanitizer($validator, allowContainerSerialization: true);
+
+        // A single-field-segment token — getSecurityPath() === 'container',
+        // depth 1 — resolving to a value nested three levels deep: the
+        // exact depth budget a direct 3-segment path is allowed to reach.
+        $raw = ['level1' => ['level2' => ['level3' => 'deep value']]];
+
+        $result = $sanitizer->sanitize($raw, sanitizerTestToken('Root.container'));
+
+        // level1 → level2 survives (equivalent to the allowed 3-segment
+        // path); level2's own content is pruned, because reaching it would
+        // be the equivalent of the 4-segment path already proven blocked
+        // above. The pre-fix baseDepth (count($token->getPath()) === 2,
+        // counting the 'Root' prefix) would have pruned level1 itself —
+        // one level earlier than the path check allows.
+        expect($result->value)->toBe(['level1' => ['level2' => []]]);
     });
 });
 
@@ -560,7 +596,7 @@ describe('OutputSanitizer → special types', function () {
         // wording; the shared $pruned flag this fix replaces would have
         // made either message possible for either cause.
         (new OutputSanitizer($validator, allowContainerSerialization: true))
-            ->sanitize(['a' => ['b' => 'too deep']], sanitizerTestToken('User.data'));
+            ->sanitize(['a' => ['b' => 'too deep']], sanitizerTestToken('User.data.nested'));
 
         expect($reported)->toContain('mustache-resolver: serialized content pruned at max_depth');
         expect($reported)->not->toContain('mustache-resolver: cyclic reference cut from serialized content');
@@ -673,6 +709,26 @@ describe('OutputSanitizer → token path validation', function () {
 });
 
 describe('OutputSanitizer → scalar projections', function () {
+    it('keeps the path check ordered BEFORE the projection escape, calling the sanitizer directly and bypassing barrier 1 entirely', function () {
+        // MustacheResolver::createContext() wraps a plain (non-Eloquent,
+        // non-array) object via ResolutionContext::fromArray(['model' =>
+        // $data]), and ObjectAccessor does not implement
+        // SecurityAwareAccessorInterface — CollectionResolver's own
+        // pre-check (barrier 1) never runs on that path, so this ordering
+        // inside sanitize() (the path check BEFORE the projection escape)
+        // is the ONLY guard left. This test calls the sanitizer directly,
+        // bypassing the resolver pipeline entirely, so it cannot be
+        // satisfied by barrier 1 rejecting the path first — only the
+        // sanitizer's own ordering can make it pass.
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['title'], mode: SecurityValidator::MODE_ENFORCE)
+        );
+
+        $result = $sanitizer->sanitize(['First Post'], sanitizerTestToken('User.posts.*.title', TokenType::COLLECTION));
+
+        expect($result->blocked)->toBeTrue();
+    });
+
     it('allows an empty list', function () {
         $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
 

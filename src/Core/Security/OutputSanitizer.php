@@ -288,6 +288,32 @@ final readonly class OutputSanitizer
     }
 
     /**
+     * Segment count of a canonical security path, for seeding the
+     * container walk's depth budget.
+     *
+     * Mirrors exactly how SecurityValidator::allowsPath() counts depth
+     * (explode('.', $path), then count()) — see sanitiseContainer()'s use
+     * of this for why matching that count is the whole point: the path
+     * check and the container walk must measure the SAME token the SAME
+     * way, or one blocks/prunes at a different depth than the other
+     * allows, which is the false-block class Fix 1 (getSecurityPath())
+     * already existed to remove for the path check itself.
+     *
+     * A null or empty path — no static path to measure (hasSecurityPath()
+     * false, or DYNAMIC, whose real access is validated by the accessor
+     * at runtime, never by a path here) — seeds depth 0. Nothing
+     * validated this token's own position by depth in the first place,
+     * so only the container's OWN nested structure should count against
+     * max_depth, not an assumed position for the token itself.
+     */
+    private function pathDepth(?string $securityPath): int
+    {
+        return $securityPath === null || $securityPath === ''
+            ? 0
+            : count(explode('.', $securityPath));
+    }
+
+    /**
      * Filter an authorised container and build both representations.
      *
      * "Authorised" here means the container reached this point without being
@@ -320,7 +346,7 @@ final readonly class OutputSanitizer
         }
 
         $found = [];
-        $baseDepth = count($token->getPath());
+        $baseDepth = $this->pathDepth($token->getSecurityPath());
         $depthPruned = false;
         $cycleCut = false;
         $conversionFailed = false;
