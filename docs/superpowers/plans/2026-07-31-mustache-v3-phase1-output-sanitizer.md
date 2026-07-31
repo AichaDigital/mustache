@@ -1220,6 +1220,16 @@ Update the two call sites in `sanitiseContainer()` to match the new signature �
 Run: `vendor/bin/pest tests/Unit/Core/Security/OutputSanitizerTest.php`
 Expected: PASS (17 tests)
 
+**Correction applied 2026-07-31, after this task's review.** Two defects came from the snippets above, not from the implementation:
+
+**Cycle detection must use an ancestor stack, not an accumulating set.** A flat `SplObjectStorage` cannot tell a cycle from a legitimately repeated sibling: `['a' => $company, 'b' => $company]` had its second occurrence silently nulled. Attach on entering a branch and detach on leaving — via `try`/`finally`, so the stack unwinds even when conversion throws. `A → A` and `A → B → A` are cut; sibling repeats serialise twice, because they are real data.
+
+**Do not share one `$pruned` boolean across causes.** Separate `cycle_cut`, `depth_pruned` and `conversion_failed`, or the logs attribute an alteration to the wrong reason.
+
+**A failed `toArray()` is a policy event and follows the mode:** `off` does not even attempt conversion; `report` warns that enforce would block, and returns the original object with its identity, type and legacy rendering intact — never a partially converted array; `enforce` warns and returns `SanitizedValue::blocked()`.
+
+Note on scope: `max_depth` bounds depth, not width or expansion count. An object repeated thousands of times can expand thousands of times, and that is not the cycle detector's problem to solve — if a size defence is ever needed it belongs elsewhere, as an explicit node or byte budget.
+
 - [ ] **Step 5: Commit**
 
 ```bash
