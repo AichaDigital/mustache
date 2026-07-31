@@ -347,3 +347,110 @@ describe('OutputSanitizer → depth', function () {
         expect($reported)->toContain('mustache-resolver: serialized content would be pruned at max_depth in enforce mode');
     });
 });
+
+describe('OutputSanitizer → special types', function () {
+    it('treats a backed enum as a scalar', function () {
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize(TokenType::MODEL, sanitizerTestToken('User.kind'));
+
+        expect($result->blocked)->toBeFalse();
+        expect($result->text)->toBe('model');
+        // Unlike every other atomic object (Stringable), an enum is not
+        // stringified into ->value — it survives raw, so a consumer of
+        // getResolvedValues() gets the enum instance itself, not a lossy
+        // string copy of it. Subtle, and the whole point of this assertion.
+        expect($result->value)->toBe(TokenType::MODEL);
+    });
+
+    it('treats a Traversable as a container', function () {
+        $it = new ArrayIterator(['a' => 1]);
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize($it, sanitizerTestToken('User.items'));
+
+        expect($result->blocked)->toBeTrue();
+    });
+
+    it('normalises an atomic object nested inside an authorised container, instead of leaving it raw', function () {
+        // Before this task, stripBlacklisted() only acted on values that
+        // isContainer() classified as containers — a nested Stringable-only
+        // value like Carbon fell through untouched, leaving the live object
+        // sitting in the filtered array. json_encode() on a plain Stringable
+        // (no JsonSerializable) would then emit an opaque "{}", silently
+        // dropping the date instead of rendering it.
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        $date = Carbon::parse('2026-07-31 09:00:00');
+
+        $result = $sanitizer->sanitize(['created_at' => $date], sanitizerTestToken('User.data'));
+
+        expect($result->value)->toBe(['created_at' => '2026-07-31 09:00:00']);
+        expect($result->text)->toBe('{"created_at":"2026-07-31 09:00:00"}');
+    });
+
+    it('blocks a container whose toArray() throws, instead of returning empty', function () {
+        $bad = new class implements Arrayable
+        {
+            public function toArray(): array
+            {
+                throw new RuntimeException('boom');
+            }
+        };
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE), allowContainerSerialization: true))
+            ->sanitize($bad, sanitizerTestToken('User.broken'));
+
+        expect($result->blocked)->toBeTrue();
+    });
+
+    it('converts a JsonSerializable-only container through jsonSerialize()', function () {
+        // Not Arrayable, not Traversable, not Stringable: isContainer() only
+        // classifies this as a container via its "any remaining object"
+        // fallback. toArray() must still know how to read it — falling back
+        // to get_object_vars() would miss data behind private state.
+        $data = new class implements JsonSerializable
+        {
+            public function jsonSerialize(): array
+            {
+                return ['x' => 1];
+            }
+        };
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE), allowContainerSerialization: true))
+            ->sanitize($data, sanitizerTestToken('User.meta'));
+
+        expect($result->blocked)->toBeFalse();
+        expect($result->value)->toBe(['x' => 1]);
+    });
+
+    it('converts an authorised Traversable through iterator_to_array()', function () {
+        $it = new ArrayIterator(['a' => 1]);
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE), allowContainerSerialization: true))
+            ->sanitize($it, sanitizerTestToken('User.items'));
+
+        expect($result->blocked)->toBeFalse();
+        expect($result->value)->toBe(['a' => 1]);
+    });
+
+    it('cuts a cyclic structure instead of recursing forever', function () {
+        // throwsNoExceptions() is deliberately not chained here: it calls
+        // PHPUnit's expectNotToPerformAssertions(), which conflicts with the
+        // expect() below under this project's failOnRisky="true" — it would
+        // mark the test risky and fail the suite on that alone. The
+        // assertion below already proves "no exception was thrown": an
+        // uncaught exception (or an exhausted stack/memory limit from
+        // unbounded recursion) would fail this test before reaching it.
+        $a = new stdClass;
+        $a->name = 'a';
+        $a->self = $a;
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE), allowContainerSerialization: true))
+            ->sanitize($a, sanitizerTestToken('User.node'));
+
+        expect($result->blocked)->toBeFalse();
+    });
+});

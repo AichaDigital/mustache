@@ -126,6 +126,11 @@ final readonly class OutputSanitizer
 
     /**
      * Render a sanitised value for template substitution.
+     *
+     * An enum stays raw in ->value (see sanitize() and stripBlacklisted()),
+     * but the rendered ->text still needs a string: a backed enum renders
+     * its backing value, a pure one its case name — neither has __toString()
+     * by default, so without this branch it would fall through to ''.
      */
     private function render(mixed $value): string
     {
@@ -139,6 +144,14 @@ final readonly class OutputSanitizer
 
         if (is_array($value)) {
             return implode(', ', array_map(fn ($v): string => $this->render($v), $value));
+        }
+
+        if ($value instanceof \BackedEnum) {
+            return (string) $value->value;
+        }
+
+        if ($value instanceof \UnitEnum) {
+            return $value->name;
         }
 
         if (is_object($value)) {
@@ -158,6 +171,16 @@ final readonly class OutputSanitizer
     private function sanitiseContainer(mixed $raw, TokenInterface $token): SanitizedValue
     {
         $array = $this->toArray($raw);
+
+        if ($array === null) {
+            $this->validator?->reportViolation(
+                'mustache-resolver: container could not be converted safely, blocked',
+                ['path' => $token->getRaw(), 'type' => get_debug_type($raw)],
+            );
+
+            return SanitizedValue::blocked();
+        }
+
         $found = [];
         $baseDepth = count($token->getPath());
         $pruned = false;
@@ -182,7 +205,7 @@ final readonly class OutputSanitizer
         }
 
         if ($this->validator?->getMode() === SecurityValidator::MODE_REPORT) {
-            return new SanitizedValue($raw, $this->renderContainer($this->stripBlacklisted($array, depth: $baseDepth), $raw));
+            return new SanitizedValue($raw, $this->renderContainer($this->stripBlacklisted($array, $found, $baseDepth, $pruned), $raw));
         }
 
         return new SanitizedValue($filtered, $this->renderContainer($filtered, $raw));
@@ -218,30 +241,65 @@ final readonly class OutputSanitizer
      *
      * Reuses isContainer()'s classification for the recursive case (see
      * stripBlacklisted()): anything that is not array or Arrayable but still
-     * classifies as a container falls back to its public properties.
+     * classifies as a container falls back to jsonSerialize(), iteration, or
+     * finally its public properties.
      *
-     * @return array<mixed>
+     * Wrapped in a try/catch on purpose: a conversion method that throws is
+     * a container we cannot safely inspect, not an empty one — the caller
+     * treats a null return as "block this", never as "nothing was here."
+     * Likewise a conversion that returns something other than an array
+     * (e.g. Arrayable::toArray() returning another object) is reported as
+     * null rather than trusted, per §11.5.
+     *
+     * @return array<mixed>|null null when the value cannot be converted safely
      */
-    private function toArray(mixed $value): array
+    private function toArray(mixed $value): ?array
     {
-        if (is_array($value)) {
-            return $value;
-        }
+        try {
+            if (is_array($value)) {
+                return $value;
+            }
 
-        if ($value instanceof Arrayable) {
-            return $value->toArray();
-        }
+            if ($value instanceof Arrayable) {
+                $converted = $value->toArray();
 
-        return is_object($value) ? get_object_vars($value) : [];
+                // Arrayable::toArray() declares no PHP return type, only a
+                // PHPDoc one — a class can implement the interface and still
+                // return something else at runtime without a TypeError.
+                // PHPStan trusts the PHPDoc and calls this branch dead; it is
+                // exactly the failure mode §11.5 requires treated as blocked,
+                // not silently accepted.
+                return is_array($converted) ? $converted : null; // @phpstan-ignore function.alreadyNarrowedType
+            }
+
+            if ($value instanceof \JsonSerializable) {
+                $converted = $value->jsonSerialize();
+
+                return is_array($converted) ? $converted : null;
+            }
+
+            if ($value instanceof \Traversable) {
+                return iterator_to_array($value);
+            }
+
+            return is_object($value) ? get_object_vars($value) : [];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
-     * Remove blacklisted keys recursively, collecting what was removed.
+     * Remove blacklisted keys recursively, prune past max_depth, cut cycles.
      *
      * Recursion decisions go through isContainer() — the same classification
      * used for the root value — so a model nested inside an authorised array
      * cannot escape filtering by being Stringable (see the class docblock on
-     * isContainer() for why the precedence order matters).
+     * isContainer() for why the precedence order matters). A nested object
+     * that isContainer() classifies as atomic is normalised the same way the
+     * root value is in sanitize(): an enum passes through raw, anything else
+     * is rendered to its string form. Leaving it as a raw object would let
+     * it dodge json_encode() (a Stringable-only value serialises as `{}`)
+     * while the recorded array/value would still carry the live object.
      *
      * Depth counts from the context root, not from this call's own
      * recursion: $depth arrives seeded with the token's path depth (see
@@ -254,12 +312,36 @@ final readonly class OutputSanitizer
      * replacing it with an empty array, rather than discarding the whole
      * container the way Barrier 2's earlier gate does.
      *
+     * Cycles: $seen tracks objects already expanded in this traversal. An
+     * object is attached right before it is expanded into an array and
+     * recursed into; if it is encountered again (the structure loops back
+     * to it), it is cut to null and reported as pruned instead of being
+     * expanded a second time — that second expansion is what would recurse
+     * forever. $seen defaults fresh per top-level call, which is correct:
+     * two independent traversals of the same data (e.g. the extra report-
+     * mode pass in sanitiseContainer()) must not treat one call's visited
+     * set as carrying over into the other's.
+     *
+     * A nested toArray() failure (see toArray()'s own contract) degrades to
+     * an empty array rather than blocking, unlike the root-level failure
+     * guarded in sanitiseContainer(): there is no SanitizedValue::blocked()
+     * to return for a single key partway through a larger structure, so the
+     * offending branch is simply dropped.
+     *
      * @param  array<mixed>  $data
      * @param  array<int, string>  $found
+     * @param  \SplObjectStorage<object, mixed>|null  $seen
      * @return array<mixed>
      */
-    private function stripBlacklisted(array $data, array &$found = [], int $depth = 0, bool &$pruned = false): array
-    {
+    private function stripBlacklisted(
+        array $data,
+        array &$found = [],
+        int $depth = 0,
+        bool &$pruned = false,
+        ?\SplObjectStorage $seen = null,
+    ): array {
+        $seen ??= new \SplObjectStorage;
+
         foreach ($data as $key => $value) {
             if (is_string($key) && $this->validator?->isAttributeBlacklisted($key)) {
                 $found[] = $key;
@@ -268,7 +350,25 @@ final readonly class OutputSanitizer
                 continue;
             }
 
-            if ($this->isContainer($value)) {
+            if (is_object($value)) {
+                if (! $this->isContainer($value)) {
+                    $data[$key] = $value instanceof \UnitEnum ? $value : $this->render($value);
+
+                    continue;
+                }
+
+                if ($seen->contains($value)) {
+                    $data[$key] = null;
+                    $pruned = true;
+
+                    continue;
+                }
+
+                $seen->attach($value);
+                $value = $this->toArray($value) ?? [];
+            }
+
+            if (is_array($value)) {
                 if ($this->validator?->isDepthExceeded($depth + 2) === true) {
                     $data[$key] = [];
                     $pruned = true;
@@ -276,7 +376,7 @@ final readonly class OutputSanitizer
                     continue;
                 }
 
-                $data[$key] = $this->stripBlacklisted($this->toArray($value), $found, $depth + 1, $pruned);
+                $data[$key] = $this->stripBlacklisted($value, $found, $depth + 1, $pruned, $seen);
             }
         }
 
