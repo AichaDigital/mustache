@@ -51,6 +51,10 @@ final readonly class OutputSanitizer
             return new SanitizedValue($text, $text);
         }
 
+        if ($this->isContainer($raw)) {
+            return $this->sanitiseContainer($raw, $token);
+        }
+
         return new SanitizedValue($raw, $this->render($raw));
     }
 
@@ -142,5 +146,111 @@ final readonly class OutputSanitizer
         }
 
         return (string) $value;
+    }
+
+    /**
+     * Filter an authorised container and build both representations.
+     *
+     * "Authorised" here means the container reached this point without being
+     * blocked above (whitelisted class, the global flag, or report mode) —
+     * not that it is exempt from the blacklist. Stripping still applies.
+     */
+    private function sanitiseContainer(mixed $raw, TokenInterface $token): SanitizedValue
+    {
+        $array = $this->toArray($raw);
+        $found = [];
+        $filtered = $this->stripBlacklisted($array, $found);
+
+        if ($found !== []) {
+            $this->validator?->reportViolation(
+                $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
+                    ? 'mustache-resolver: blacklisted attributes stripped from serialized container'
+                    : 'mustache-resolver: container contains blacklisted attribute(s), they would be filtered in enforce mode',
+                ['path' => $token->getRaw(), 'blacklisted_attributes' => array_values(array_unique($found))],
+            );
+        }
+
+        if ($this->validator?->getMode() === SecurityValidator::MODE_REPORT) {
+            return new SanitizedValue($raw, $this->renderContainer($this->stripBlacklisted($array), $raw));
+        }
+
+        return new SanitizedValue($filtered, $this->renderContainer($filtered, $raw));
+    }
+
+    /**
+     * Render a container as JSON, preserving Eloquent's casting escape.
+     *
+     * This is what modelToString() did in 2.1 and it is contract: a consumer
+     * serialising a whole relation gets JSON, not an imploded list. The escape
+     * flag is protected, so it is read through a closure bound to the model.
+     *
+     * @param  array<mixed>  $filtered
+     */
+    private function renderContainer(array $filtered, mixed $original): string
+    {
+        $json = json_encode($filtered) ?: '';
+
+        if (! is_object($original) || ! property_exists($original, 'escapeWhenCastingToString')) {
+            return $json;
+        }
+
+        $reader = function (): bool {
+            // @phpstan-ignore-next-line — bound to the model to read its protected flag
+            return (bool) $this->escapeWhenCastingToString;
+        };
+
+        return $reader->call($original) ? e($json) : $json;
+    }
+
+    /**
+     * Convert a container to its array form for filtering.
+     *
+     * Reuses isContainer()'s classification for the recursive case (see
+     * stripBlacklisted()): anything that is not array or Arrayable but still
+     * classifies as a container falls back to its public properties.
+     *
+     * @return array<mixed>
+     */
+    private function toArray(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if ($value instanceof Arrayable) {
+            return $value->toArray();
+        }
+
+        return is_object($value) ? get_object_vars($value) : [];
+    }
+
+    /**
+     * Remove blacklisted keys recursively, collecting what was removed.
+     *
+     * Recursion decisions go through isContainer() — the same classification
+     * used for the root value — so a model nested inside an authorised array
+     * cannot escape filtering by being Stringable (see the class docblock on
+     * isContainer() for why the precedence order matters).
+     *
+     * @param  array<mixed>  $data
+     * @param  array<int, string>  $found
+     * @return array<mixed>
+     */
+    private function stripBlacklisted(array $data, array &$found = []): array
+    {
+        foreach ($data as $key => $value) {
+            if (is_string($key) && $this->validator?->isAttributeBlacklisted($key)) {
+                $found[] = $key;
+                unset($data[$key]);
+
+                continue;
+            }
+
+            if ($this->isContainer($value)) {
+                $data[$key] = $this->stripBlacklisted($this->toArray($value), $found);
+            }
+        }
+
+        return $data;
     }
 }

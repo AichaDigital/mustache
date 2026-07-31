@@ -113,6 +113,7 @@ describe('OutputSanitizer → containers', function () {
             ->sanitize($safe, sanitizerTestToken('User.badge'));
 
         expect($result->blocked)->toBeFalse();
+        expect($result->value)->toBe(['label' => 'ok']);
     });
 });
 
@@ -194,5 +195,104 @@ describe('OutputSanitizer → classification precedence', function () {
 
         expect($result->blocked)->toBeFalse();
         expect($result->value)->toBe('10.00 EUR');
+    });
+});
+
+describe('OutputSanitizer → filtering authorised containers', function () {
+    it('strips blacklisted keys recursively when the container is allowed', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        $result = $sanitizer->sanitize([
+            'name' => 'John',
+            'password' => 'hunter2',
+            'profile' => ['bio' => 'x', 'password' => 'nested'],
+        ], sanitizerTestToken('User.data'));
+
+        expect($result->value)->toBe([
+            'name' => 'John',
+            'profile' => ['bio' => 'x'],
+        ]);
+    });
+
+    it('matches blacklisted keys case-insensitively', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        $result = $sanitizer->sanitize(['Password' => 'x', 'ok' => 1], sanitizerTestToken('User.data'));
+
+        expect($result->value)->toBe(['ok' => 1]);
+    });
+
+    it('does not filter in report mode, but reports', function () {
+        $reported = [];
+        $validator = new SecurityValidator(
+            blacklistedAttributes: ['password'],
+            mode: SecurityValidator::MODE_REPORT,
+            reporter: function (string $m, array $c) use (&$reported): void {
+                $reported[] = $c;
+            },
+        );
+
+        $result = (new OutputSanitizer($validator, allowContainerSerialization: true))
+            ->sanitize(['password' => 'x'], sanitizerTestToken('User.data'));
+
+        expect($result->value)->toBe(['password' => 'x']);
+        expect($reported)->not->toBeEmpty();
+    });
+
+    it('filters a model nested inside an authorised container', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        // password is not in User::$fillable, so the constructor would
+        // silently drop it — forceFill bypasses the guard to actually put
+        // it on the model, which is the point of this fixture.
+        $nested = (new User(['name' => 'John']))->forceFill(['password' => 'hunter2']);
+
+        $result = $sanitizer->sanitize(['owner' => $nested], sanitizerTestToken('User.data'));
+
+        expect($result->value)->toBe(['owner' => ['name' => 'John']]);
+        expect(json_encode($result->value))->not->toContain('hunter2');
+    });
+
+    it('renders an authorised container as JSON, not as an imploded list', function () {
+        $sanitizer = new OutputSanitizer(
+            new SecurityValidator(blacklistedAttributes: ['password'], mode: SecurityValidator::MODE_ENFORCE),
+            allowContainerSerialization: true,
+        );
+
+        $result = $sanitizer->sanitize(['name' => 'Engineering', 'password' => 'x'], sanitizerTestToken('User.department'));
+
+        expect($result->text)->toBe('{"name":"Engineering"}');
+    });
+
+    it('honours escapeWhenCastingToString on the serialized container, like Eloquent does', function () {
+        // Duck-typed on purpose: renderContainer() reads the flag through a
+        // closure by property name, not through a Model type check, so this
+        // real (non-mock) fixture exercises the same code path a model would
+        // without pulling in illuminate/database migrations for a unit test.
+        $safe = new class implements Arrayable, SafeForTemplateSerialization
+        {
+            public bool $escapeWhenCastingToString = true;
+
+            public function toArray(): array
+            {
+                return ['name' => '<b>Ops</b>'];
+            }
+        };
+
+        $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
+
+        $result = $sanitizer->sanitize($safe, sanitizerTestToken('User.department'));
+
+        expect($result->text)->toContain('&lt;b&gt;');
+        expect($result->text)->not->toContain('<b>');
     });
 });
