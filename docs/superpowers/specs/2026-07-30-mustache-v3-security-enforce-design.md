@@ -2,7 +2,7 @@
 
 - **Ticket:** AID-733 (continues AID-632, closed)
 - **Date:** 2026-07-30
-- **Status:** approved, pending implementation plan
+- **Status:** under revision — sections 1-10 superseded in part by the amendment in section 11. Not ready to become an implementation plan until the ticket is reconciled (see 11.9)
 - **Baseline:** v2.1.0 (tag `v2.1.0`, commit `2a3db11`, published on Packagist with `dist`)
 
 ## 1. Context
@@ -131,7 +131,7 @@ Nothing throws that did not throw before. A blocked value degrades to an empty s
 
 These cannot be fixed in 2.x, because fixing them *is* the breaking change. The README and the upgrade guide name them explicitly, so nobody concludes that staying on 2.x is covered:
 
-- **Containers are never filtered, not even in `enforce`.** Fixed as contract by `it('leaves containers unfiltered in enforce mode (deferred to v3)')`. Reachable by any template, so this is the one that matters.
+- **Arrays and collections are never filtered, not even in `enforce`.** Fixed as contract by `it('leaves containers unfiltered in enforce mode (deferred to v3)')`. Reachable by any template, so this is the one that matters. Whole *models* are already filtered in 2.1.0 by `modelToString()` — see `README.md:174`.
 - **`getResolvedValues()` returns raw values.** Only leaks if the consumer logs, serialises or forwards the result object — but that is a common thing to do.
 - **The model whitelist is evadable by basename.** Minor: only affects consumers who populated `allowed_models`, and requires an attacker able to introduce a class with a colliding basename.
 - **`ConditionRegistry` keeps its static singleton.** Minor: `src/` never invokes it, so only consumers calling it directly under Octane are exposed.
@@ -164,8 +164,115 @@ Beyond per-feature coverage, two guardrails aimed at the bug class rather than i
 
 Feature coverage: patterns (including a documented false positive), containers blocked and both escapes, FQCN rejection of short names, `max_depth` over serialised content, and an upgrade-path test seeding a 2.x configuration and asserting the 3.x behaviour.
 
-## 10. Out of scope
+## 10. Out of scope (see 11.4 for a later addition)
 
 - Implementing table-level access control. It requires a resolver that actually queries the database, which does not exist; that is a feature, not a fix.
 - Turning the blacklist into a whitelist of exposable fields. It is the only complete defence but would render the package unusable until each consumer enumerated its models.
 - Any change to `strict` / `keep_unresolved` semantics. Verified as orthogonal: security blocking never reaches the strict-mode failure path.
+
+## 11. Amendment — 2026-07-31
+
+An adversarial review of sections 1-10 raised four blockers, all verified against the code and all upheld. This section records the resolutions. Where it conflicts with an earlier section, this section wins.
+
+One factual error was corrected inline rather than here: section 7 claimed containers are never filtered in v2, which contradicted section 3. Whole *models* are filtered in 2.1.0; arrays and collections are not.
+
+### 11.1 Existing consumers never reach `enforce`
+
+Changing the package default does not move anyone who published the config. Verified in the framework:
+
+```php
+$config->set($key, array_merge(require $path, $config->get($key, [])));
+```
+
+`array_merge` is shallow and `security` is a top-level key, so a consumer's published block **replaces the package block entirely**. On upgrade they keep `mode: report` *and* the new v3 keys simply do not exist for them. And under `config:cache` the merge never runs at all.
+
+So "v3 defaults to enforce" is true only for fresh installs. Stating it unqualified would repeat the exact defect AID-632 exposed: trusting a default that an intermediate layer masks.
+
+**Resolution — warn and fill absent keys:**
+
+- A key that is **absent** takes the v3 default. A key present as `[]` means the consumer deliberately disabled it. These must be distinguished with `array_key_exists()`, never with `??`, which would silently override a deliberate choice.
+- **`mode` is never overridden.** There is no way to tell an inherited `report` from a chosen one.
+- The startup warning must state, unambiguously: which keys were absent and what defaults now apply; the **effective mode**; that under `report` the new protections **only report, they do not block**; the exact edit required; and a link to `UPGRADE-3.md`.
+- The warning must not assert *which file* the configuration came from — under cached config that cannot be verified.
+
+**This is the point most easily overstated:** with `mode: report` preserved, patterns only report and containers are not blocked. The v3 defaults are loaded, not in force. README and CHANGELOG must say exactly that — fresh installs get `enforce`; configurations published under v2 keep their mode explicitly.
+
+### 11.2 Standalone usage — proposed, pending sign-off
+
+The public standalone example builds `MustacheResolver` with no validator (`README.md:57`) and the constructor accepts one as nullable (`MustacheResolver.php:27`). So "enforce by default" currently describes the Laravel integration only, not the framework-agnostic package the README advertises.
+
+**Proposal:** `null` stops meaning "no policy" and starts meaning "the default policy". A resolver built without a validator gets one constructed with the v3 defaults — `enforce`, exact blacklist, patterns, containers blocked. Opting out requires `mode: off` explicitly. The signature does not change; the behaviour does, which is what a major is for.
+
+The default standalone validator carries no reporter (the Laravel one injects `Log::warning`), so it blocks silently unless the caller supplies one. The README must show both paths: Laravel via the provider, standalone via explicit construction.
+
+*This is the one resolution not yet signed off by the owner.*
+
+### 11.3 Scalar bypass and the trust boundary
+
+Section 5 claimed the sanitizer cannot be bypassed while also stating that scalars pass through. Both cannot hold: a resolver that navigates on its own and returns the password *string* clears the accessor barrier and sails through the output barrier, because a `string` carries no mark of origin.
+
+**Resolution — validate the token path centrally, and declare the limit:**
+
+- The sanitizer re-validates the **token path** before the value reaches either destination, not just the value's type. This covers the package's own resolvers navigating on their own — the failure that actually happened twice.
+- **Consumer-registered resolvers are trusted code**, declared as such in the README and outside the threat model. A hostile custom resolver returning a secret under an innocuous token cannot be detected by inspecting token and value alone — and it would not need this package to exfiltrate anything.
+
+Required tests: an internal hostile resolver returning a blacklisted scalar; blocking in **both** the rendered text and `getResolvedValues()`; `report` observing without modifying and `off` passing through untouched; no duplicate warnings between accessor and sanitizer; paths with relations, indices and wildcards.
+
+### 11.4 `allowed_models` → `allowed_root_models`
+
+`validateModel()` runs only in the `EloquentAccessor` constructor, so models nested inside an array are never checked. AID-733 asks for recursive coverage; that is **withdrawn**, with reasons.
+
+Covering it properly would mean replacing `data_get()` with an in-house navigation engine handling arrays, objects, collections, indices and wildcards — too large a regression surface for an opt-in control. Covering it *partially* (validating only on serialization) is worse than not covering it: it turns the whitelist into one that applies sometimes, which cannot be explained honestly.
+
+**Resolution:**
+
+- The key is **renamed to `allowed_root_models`**. Since this is a major, the honest name ships with the behaviour, and no consumer can read a guarantee into it that does not exist.
+- It validates the **root model only**, documented as root-context hardening rather than a control over every object traversed.
+- When the list is non-empty but the root datum is an array, a warning states explicitly that a class whitelist cannot be applied.
+- Nested model *serialization* remains covered by the container policy; nested *scalar* access remains covered by blacklist and patterns — neither is presented as equivalent to a class whitelist.
+- **Explicit trade-off, stated in the README:** a non-blacklisted attribute of a nested model resolves even when its class is absent from `allowed_root_models`.
+- `UPGRADE-3.md` records `allowed_models` → `allowed_root_models`.
+
+### 11.5 Serialization contract
+
+Public API, so it is fixed here and documented as a break:
+
+- **Blocked container:** empty string in the rendered text, `null` in `getResolvedValues()`. The key is present — its absence would be indistinguishable from a token that never resolved.
+- **Authorised container:** `getResolvedValues()` receives the **sanitised** value, so a filtered model arrives as a filtered array, not as a `Model`. The rendered text keeps today's string behaviour, `escapeWhenCastingToString()` included.
+- **`max_depth`** counts from the context root: token depth plus depth inside the serialised content. The limit measures how deep data is exposed, wherever the depth comes from.
+- **Exceeding depth prunes the offending branch**, not the whole container, and reports.
+- **Types:** `Stringable` and enums resolve as scalars. `Arrayable`, `JsonSerializable` and `Traversable` are containers, blocked by default.
+- **Cycles** are detected with `SplObjectStorage`; a revisited node is cut and reported.
+- **`toArray()` throwing, or returning another object,** is treated as a blocked container and reported. Never as an empty success.
+
+### 11.6 Which tokens carry a security path
+
+Attribute rules must not leak onto tokens that are not attribute access. Function, variable, math and dynamic tokens do not go through blacklist or `max_depth` checks — doing so would manufacture false positives on names the consumer controls entirely. The spec must enumerate, per `TokenType`, whether it carries a security path, and the enumeration must be covered by a test so a new token type cannot default into either regime by accident.
+
+### 11.7 v2 support policy — precision
+
+The decision stands as taken: 6 months of patches for **new** vulnerabilities and Laravel compatibility. What was missing:
+
+- **Absolute EOL date**, computed from the `v3.0.0` tag and written as a date in README and `UPGRADE-3.md` — not "six months after".
+- **Minimum severity** that triggers a 2.x patch.
+- **What "new vulnerability" means** while known ones stay open: one not listed in section 7. Those four are permanent on the 2.x line and closing them is what makes v3.
+
+### 11.8 Consumer communication
+
+Documentation artefacts are not a process. The release must record: consumer inventory with current constraints; owner, channel and date of advance notice; publication and EOL announcements; acknowledgement from known consumers; and README, CHANGELOG, guide and GitLab/Packagist release cross-linked to each other.
+
+### 11.9 Ticket reconciliation — required before implementation
+
+AID-733 and this spec diverge. The ticket is the board's source of truth and must be amended before it leaves Backlog:
+
+- Recursive `allowed_models` coverage: **withdrawn**, with the reasoning in 11.4, plus the rename.
+- Token-count and template-length limits: **the ticket has them, this spec omitted them.** They belong in scope — a template with many relation paths amplifies lazy queries without a ceiling, which is the other half of finding 4.
+- `ConditionRegistry`: the ticket says isolate, the decision is to **remove**.
+- The `fromModel` fail-open the ticket already raises is the same issue as 11.2.
+- The ticket carries **no link to this spec**.
+
+### 11.10 `UPGRADE-3.md` contents
+
+Minimum, beyond the generic criteria in section 8: Composer constraints for staying on 2.x or moving to 3.x; published configuration and config caching; every break with before/after; the type and value changes in `getResolvedValues()`; the `allowed_models` → `allowed_root_models` migration; `ConditionRegistry` replacements; containers with both escapes and the pattern false positives; the observation procedure on 2.x, post-upgrade verification and rollback; known risks and the absolute 2.x EOL date.
+
+The README needs the v3/v2 matrix, support status, secure installation for both Laravel and standalone, default behaviour, and a prominent link to the guide.
