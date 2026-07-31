@@ -328,10 +328,6 @@ final readonly class OutputSanitizer
 
     public function sanitize(mixed $raw, TokenInterface $token): SanitizedValue
     {
-        if ($this->validator === null || $this->validator->getMode() === SecurityValidator::MODE_OFF) {
-            return new SanitizedValue($raw, $this->render($raw));
-        }
-
         return new SanitizedValue($raw, $this->render($raw));
     }
 
@@ -1247,18 +1243,29 @@ Expected: FAIL — `getResolvedValues()` still contains the raw email
 
 - [ ] **Step 3: Implement**
 
-Add the constructor parameter in `src/Core/MustacheResolver.php`:
+Change the constructor in `src/Core/MustacheResolver.php`. The sanitizer is optional to pass but **always present** — a nullable property would force a fallback path duplicating the rendering logic Task 9 deletes:
 
 ```php
-        private readonly ?OutputSanitizer $sanitizer = null,
+    private readonly OutputSanitizer $sanitizer;
+
+    public function __construct(
+        private readonly ParserInterface $parser,
+        private readonly ResolutionPipeline $pipeline,
+        private readonly CacheInterface $cache,
+        private readonly ?SecurityValidator $securityValidator = null,
+        ?OutputSanitizer $sanitizer = null,
+    ) {
+        $this->sanitizer = $sanitizer ?? new OutputSanitizer($securityValidator);
+    }
 ```
+
+This preserves current behaviour: with a null validator the sanitizer passes everything through, and with the provider's validator (today `report`) it reports without blocking. It does **not** anticipate §11.2 — that is about changing the default policy, which stays in Phase 2. Here it only guarantees the single point always exists.
 
 Replace lines 60-64 of the token loop:
 
 ```php
                 $raw = $this->pipeline->resolve($token, $context);
-                $sanitized = $this->sanitizer?->sanitize($raw, $token)
-                    ?? new SanitizedValue($raw, $this->valueToString($raw));
+                $sanitized = $this->sanitizer->sanitize($raw, $token);
                 $translated = str_replace($token->getFull(), $sanitized->text, $translated);
                 $resolvedValues[$token->getRaw()] = $sanitized->value;
 ```
