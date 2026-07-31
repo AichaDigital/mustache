@@ -966,7 +966,10 @@ Change `sanitiseContainer()` to seed the depth from the token, and thread it thr
         if ($pruned) {
             $this->validator?->reportViolation(
                 'mustache-resolver: serialized content pruned at max_depth',
-                ['path' => $token->getRaw(), 'max_depth' => $baseDepth],
+                // 'max_depth' must carry the configured threshold, matching the
+                // convention SecurityValidator::allowsPath() already established.
+                // The token's own depth goes under its own name.
+                ['path' => $token->getRaw(), 'token_depth' => $baseDepth, 'max_depth' => $this->validator->getMaxDepth()],
             );
         }
 ```
