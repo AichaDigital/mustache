@@ -1359,6 +1359,27 @@ Deduplication keys on the canonical path. The raw token text stays available for
 
 **3. The cycle ancestor stack did not include the root.** The root is an ancestor too, so `A → B → A` was cut one hop later than it should be. Correct before closing Phase 1.
 
+**4. Wildcard projections were blocked as if they were dumps.** `{{User.posts.*.title}}` returns `['First Post', …]` — a list of already-projected scalars, not an object dump — but `isContainer()` treats every PHP array as a container, so it was blocked in enforce mode even when the blacklist matched nothing. That breaks documented functionality for no security gain.
+
+The fix is a **separate, earlier classification** — `isScalarProjection()`, applied only to the resolved root value. `isContainer()` is not weakened: an array that is a dump stays a dump.
+
+```
+array_is_list($value) AND every element is scalar, null, enum, or atomic renderable
+```
+
+- `[]` → projection; it carries no information
+- `['First Post', 'Second Post']` → projection
+- associative array, even of pure scalars → container, because its keys **are** field names
+- list containing arrays, `Model`, `Collection`, `Arrayable` or `Traversable` → container
+- list of atomic `Stringable` objects → projection, normalised to strings before entering `resolvedValues`
+- resources and anything not defined as atomic → container, i.e. blocked
+
+**The path check runs first**, so `{{User.posts.*.email}}` stays blocked by `email`; only the already-accepted path avoids the container gate.
+
+Representation: `value` is the list of normalised scalars, never raw atomic objects; `text` keeps the legacy projection rendering (joined list), **not** the JSON used for authorised containers; no container warning, and no need for `allow_container_serialization`.
+
+**Explicit trade-off:** the sanitizer cannot prove each scalar actually came from the declared path. That guarantee rests on the package's own resolvers; consumer-registered resolvers remain trusted code — the same limit already accepted in §11.3 for a resolver returning a scalar under an innocuous token.
+
 ### Task 8+9 (merged): Wire it into `MustacheResolver`, before the fork
 
 **Files:**
