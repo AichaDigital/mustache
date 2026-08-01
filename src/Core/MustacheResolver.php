@@ -24,16 +24,21 @@ use Illuminate\Database\Eloquent\Model;
  */
 final class MustacheResolver
 {
+    private readonly SecurityValidator $securityValidator;
+
     private readonly OutputSanitizer $sanitizer;
 
     public function __construct(
         private readonly ParserInterface $parser,
         private readonly ResolutionPipeline $pipeline,
         private readonly CacheInterface $cache,
-        private readonly ?SecurityValidator $securityValidator = null,
+        ?SecurityValidator $securityValidator = null,
         ?OutputSanitizer $sanitizer = null,
     ) {
-        $this->sanitizer = $sanitizer ?? new OutputSanitizer($securityValidator);
+        // v3 (§11.2): null stops meaning "no policy" and means "the default
+        // policy". Opting out requires an explicit mode: off validator.
+        $this->securityValidator = $securityValidator ?? SecurityValidator::defaultPolicy();
+        $this->sanitizer = $sanitizer ?? new OutputSanitizer($this->securityValidator);
     }
 
     /**
@@ -181,10 +186,6 @@ final class MustacheResolver
      */
     private function warnRootWhitelistInapplicable(mixed $data): void
     {
-        if ($this->securityValidator === null) {
-            return;
-        }
-
         if ($this->securityValidator->getMode() === SecurityValidator::MODE_OFF) {
             return;
         }

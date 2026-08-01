@@ -370,4 +370,29 @@ describe('SecurityValidator', function () {
             expect($reported)->toBe([]);
         });
     });
+
+    describe('defaultPolicy', function () {
+        it('builds the v3 default policy: enforce, exact blacklist, patterns', function () {
+            $validator = SecurityValidator::defaultPolicy();
+
+            expect($validator->getMode())->toBe(SecurityValidator::MODE_ENFORCE);
+            expect($validator->getMaxDepth())->toBe(10);
+            expect($validator->getAllowedRootModels())->toBe([]);
+            expect($validator->isAttributeBlacklisted('password'))->toBeTrue();
+            expect($validator->isAttributeBlacklisted('auth_token'))->toBeTrue();
+        });
+
+        it('carries no reporter by default and accepts one', function () {
+            $reports = [];
+            $validator = SecurityValidator::defaultPolicy(
+                function (string $message, array $context = []) use (&$reports): void {
+                    $reports[] = $message;
+                }
+            );
+
+            $validator->allowsPath('User.password');
+
+            expect($reports)->not->toBeEmpty();
+        });
+    });
 });

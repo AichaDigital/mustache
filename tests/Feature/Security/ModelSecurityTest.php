@@ -26,6 +26,12 @@ beforeEach(function () {
 
     $this->user->department()->associate($this->department);
     $this->user->save();
+
+    // password is not in User::$fillable and the workbench users table has
+    // no such column — forceFill (after the save above) sets it in memory
+    // only, never persisted, so the default-policy fixture below actually
+    // carries a sensitive value to block, without requiring a schema change.
+    $this->user->forceFill(['password' => 'secret-hash']);
 });
 
 describe('Model Security', function () {
@@ -152,11 +158,18 @@ describe('Model Security', function () {
             expect($context->get('email'))->toBeNull();
         });
 
-        it('works without security config', function () {
+        it('applies the default policy when no security config is given (v3)', function () {
+            // Fixture guard: prove the model actually carries the sensitive
+            // value when the policy is off — otherwise the block assertion
+            // below could pass against a fixture that never had a password
+            // at all.
+            $off = ResolutionContext::fromModel($this->user, ['mode' => SecurityValidator::MODE_OFF]);
+            expect($off->get('password'))->not->toBeNull();
+
             $context = ResolutionContext::fromModel($this->user);
 
             expect($context->get('name'))->toBe('John Doe');
-            expect($context->get('email'))->toBe('john@example.com');
+            expect($context->get('password'))->toBeNull();
         });
 
         it('ignores a non-Closure reporter in report mode', function () {
@@ -202,6 +215,43 @@ describe('Model Security', function () {
             expect($reports)->toContain(
                 'mustache-resolver: allowed_root_models cannot be applied, the root datum is not a model'
             );
+        });
+    });
+
+    describe('MustacheResolver standalone default policy (v3, §11.2)', function () {
+        it('a resolver built without a validator gets the default policy', function () {
+            $resolver = new MustacheResolver(
+                new MustacheParser,
+                PipelineBuilder::create()->build(),
+                new NullCache,
+            );
+
+            // MODEL tokens (PascalCase prefix, e.g. "User") strip the
+            // prefix and navigate the field path against the ROOT data
+            // (see ModelResolverTest.php) — the array is flat, not
+            // wrapped under a 'User' key.
+            $result = $resolver->translate(
+                'Secret: {{User.api_token}} / Name: {{User.name}}',
+                ['api_token' => 'tok_123', 'name' => 'John'],
+            );
+
+            expect($result->getTranslated())->toBe('Secret:  / Name: John');
+        });
+
+        it('opting out requires mode off explicitly', function () {
+            $resolver = new MustacheResolver(
+                new MustacheParser,
+                PipelineBuilder::create()->build(),
+                new NullCache,
+                new SecurityValidator(mode: SecurityValidator::MODE_OFF),
+            );
+
+            $result = $resolver->translate(
+                'Secret: {{User.api_token}}',
+                ['api_token' => 'tok_123'],
+            );
+
+            expect($result->getTranslated())->toBe('Secret: tok_123');
         });
     });
 });

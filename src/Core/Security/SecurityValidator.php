@@ -42,6 +42,17 @@ final readonly class SecurityValidator
     ];
 
     /**
+     * The exact-name blacklist shipped as default. Kept in sync with the
+     * published config file by tests/Unit/Config/PublishedConfigTest.
+     */
+    public const DEFAULT_BLACKLISTED_ATTRIBUTES = [
+        'password',
+        'remember_token',
+        'api_token',
+        'secret',
+    ];
+
+    /**
      * @param  array<string>  $allowedRootModels
      * @param  array<string>  $blacklistedAttributes
      * @param  array<string>  $blacklistedPatterns
@@ -55,6 +66,24 @@ final readonly class SecurityValidator
         private string $mode = self::MODE_ENFORCE,
         private ?Closure $reporter = null,
     ) {}
+
+    /**
+     * The v3 default policy: what a consumer gets when they construct the
+     * resolver (or a model context) without any security configuration.
+     * null stopped meaning "no policy" in v3 — it means THIS policy.
+     * Opting out requires mode: off explicitly. Carries no reporter unless
+     * given one, so standalone it blocks silently (README documents both paths).
+     */
+    public static function defaultPolicy(?Closure $reporter = null): self
+    {
+        return new self(
+            blacklistedAttributes: self::DEFAULT_BLACKLISTED_ATTRIBUTES,
+            blacklistedPatterns: self::DEFAULT_BLACKLISTED_PATTERNS,
+            maxDepth: 10,
+            mode: self::MODE_ENFORCE,
+            reporter: $reporter,
+        );
+    }
 
     /**
      * Check if a model class is allowed.

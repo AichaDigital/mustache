@@ -57,31 +57,56 @@ final readonly class ResolutionContext implements ContextInterface
      */
     public static function fromModel(Model $model, array $securityConfig = []): self
     {
-        $validator = null;
-
-        if (! empty($securityConfig)) {
-            if (array_key_exists('allowed_models', $securityConfig)) {
-                throw ConfigurationException::renamedKey('allowed_models', 'allowed_root_models');
-            }
-
-            /** @var array<string> $allowedRootModels */
-            $allowedRootModels = $securityConfig['allowed_root_models'] ?? [];
-            /** @var array<string> $blacklistedAttributes */
-            $blacklistedAttributes = $securityConfig['blacklisted_attributes'] ?? [];
-            $reporter = $securityConfig['reporter'] ?? null;
-
-            $validator = new SecurityValidator(
-                allowedRootModels: $allowedRootModels,
-                blacklistedAttributes: $blacklistedAttributes,
-                maxDepth: (int) ($securityConfig['max_depth'] ?? 10),
-                mode: (string) ($securityConfig['mode'] ?? SecurityValidator::MODE_ENFORCE),
-                reporter: $reporter instanceof Closure ? $reporter : null,
-            );
+        if (array_key_exists('allowed_models', $securityConfig)) {
+            throw ConfigurationException::renamedKey('allowed_models', 'allowed_root_models');
         }
+
+        // v3 (§11.2): no config at all means the default policy. Any
+        // explicit config, even a single key, goes through
+        // validatorFromConfig() so absent keys fall back to their own
+        // per-key defaults rather than silently disabling that guard.
+        $validator = $securityConfig === []
+            ? SecurityValidator::defaultPolicy()
+            : self::validatorFromConfig($securityConfig);
 
         $accessor = new EloquentAccessor($model, $validator);
 
         return new self($accessor, [], true, null, $securityConfig);
+    }
+
+    /**
+     * Build a SecurityValidator from a non-empty $securityConfig, applying
+     * the v3 default for every key the caller did not explicitly set
+     * (array_key_exists, not ??, so an explicit empty array is honoured
+     * as "no blacklist" rather than treated as "not configured").
+     *
+     * @param  array<string, mixed>  $securityConfig
+     */
+    private static function validatorFromConfig(array $securityConfig): SecurityValidator
+    {
+        $reporter = $securityConfig['reporter'] ?? null;
+
+        /** @var array<string> $allowedRootModels */
+        $allowedRootModels = $securityConfig['allowed_root_models'] ?? [];
+
+        /** @var array<string> $blacklistedAttributes */
+        $blacklistedAttributes = array_key_exists('blacklisted_attributes', $securityConfig)
+            ? $securityConfig['blacklisted_attributes']
+            : SecurityValidator::DEFAULT_BLACKLISTED_ATTRIBUTES;
+
+        /** @var array<string> $blacklistedPatterns */
+        $blacklistedPatterns = array_key_exists('blacklisted_patterns', $securityConfig)
+            ? $securityConfig['blacklisted_patterns']
+            : SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS;
+
+        return new SecurityValidator(
+            allowedRootModels: $allowedRootModels,
+            blacklistedAttributes: $blacklistedAttributes,
+            blacklistedPatterns: $blacklistedPatterns,
+            maxDepth: (int) ($securityConfig['max_depth'] ?? 10),
+            mode: (string) ($securityConfig['mode'] ?? SecurityValidator::MODE_ENFORCE),
+            reporter: $reporter instanceof Closure ? $reporter : null,
+        );
     }
 
     public function get(string $key): mixed
