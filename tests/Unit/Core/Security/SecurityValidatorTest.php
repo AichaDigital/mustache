@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
+use Workbench\App\Models\User;
 
 describe('SecurityValidator', function () {
     describe('validateModel', function () {
@@ -21,11 +22,11 @@ describe('SecurityValidator', function () {
                 ->not->toThrow(ModelNotAllowedException::class);
         });
 
-        it('allows model in allowed list (short class name)', function () {
+        it('rejects a model matching only by short class name (v2 contract removed in v3)', function () {
             $validator = new SecurityValidator(['User']);
 
             expect(fn () => $validator->validateModel('App\Models\User'))
-                ->not->toThrow(ModelNotAllowedException::class);
+                ->toThrow(ModelNotAllowedException::class);
         });
 
         it('throws when model not in allowed list', function () {
@@ -133,11 +134,11 @@ describe('SecurityValidator', function () {
         });
     });
 
-    describe('getAllowedModels', function () {
-        it('returns allowed models list', function () {
+    describe('getAllowedRootModels', function () {
+        it('returns allowed root models list', function () {
             $validator = new SecurityValidator(['User', 'Device']);
 
-            expect($validator->getAllowedModels())->toBe(['User', 'Device']);
+            expect($validator->getAllowedRootModels())->toBe(['User', 'Device']);
         });
     });
 
@@ -288,6 +289,29 @@ describe('SecurityValidator', function () {
             $validator = new SecurityValidator([], ['Password']);
 
             expect($validator->isAttributeBlacklisted('password'))->toBeTrue();
+        });
+    });
+
+    describe('FQCN-only whitelist (v3)', function () {
+        it('rejects a short class name that would have matched by basename in v2', function () {
+            $validator = new SecurityValidator(
+                allowedRootModels: ['User'],
+                mode: SecurityValidator::MODE_ENFORCE,
+            );
+
+            // The workbench user model's basename is User; v2 accepted it.
+            $validator->validateModel(User::class);
+        })->throws(ModelNotAllowedException::class);
+
+        it('accepts the fully qualified class name', function () {
+            $validator = new SecurityValidator(
+                allowedRootModels: [User::class],
+                mode: SecurityValidator::MODE_ENFORCE,
+            );
+
+            $validator->validateModel(User::class);
+
+            expect(true)->toBeTrue();
         });
     });
 

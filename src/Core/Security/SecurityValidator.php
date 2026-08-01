@@ -42,13 +42,13 @@ final readonly class SecurityValidator
     ];
 
     /**
-     * @param  array<string>  $allowedModels
+     * @param  array<string>  $allowedRootModels
      * @param  array<string>  $blacklistedAttributes
      * @param  array<string>  $blacklistedPatterns
      * @param  (Closure(string, array<string, mixed>): void)|null  $reporter
      */
     public function __construct(
-        private array $allowedModels = [],
+        private array $allowedRootModels = [],
         private array $blacklistedAttributes = [],
         private array $blacklistedPatterns = [],
         private int $maxDepth = 10,
@@ -65,18 +65,13 @@ final readonly class SecurityValidator
      */
     public function validateModel(string $modelClass): void
     {
-        if (empty($this->allowedModels)) {
-            return; // All models allowed when list is empty
+        if ($this->allowedRootModels === []) {
+            return; // All models allowed when list is empty (opt-in hardening)
         }
 
-        // Check full class name
-        if (in_array($modelClass, $this->allowedModels, true)) {
-            return;
-        }
-
-        // Check short class name
-        $shortName = class_basename($modelClass);
-        if (in_array($shortName, $this->allowedModels, true)) {
+        // FQCN only. Accepting class_basename meant ['User'] authorised any
+        // class in the world whose basename is User — not a whitelist.
+        if (in_array($modelClass, $this->allowedRootModels, true)) {
             return;
         }
 
@@ -87,13 +82,13 @@ final readonly class SecurityValidator
         if ($this->mode === self::MODE_REPORT) {
             $this->report('mustache-resolver: model access would be blocked in enforce mode', [
                 'model' => $modelClass,
-                'allowed_models' => $this->allowedModels,
+                'allowed_root_models' => $this->allowedRootModels,
             ]);
 
             return;
         }
 
-        throw new ModelNotAllowedException($modelClass, $this->allowedModels);
+        throw new ModelNotAllowedException($modelClass, $this->allowedRootModels);
     }
 
     /**
@@ -182,13 +177,13 @@ final readonly class SecurityValidator
     }
 
     /**
-     * Get allowed models list.
+     * Get allowed root models list.
      *
      * @return array<string>
      */
-    public function getAllowedModels(): array
+    public function getAllowedRootModels(): array
     {
-        return $this->allowedModels;
+        return $this->allowedRootModels;
     }
 
     /**

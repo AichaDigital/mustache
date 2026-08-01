@@ -9,6 +9,7 @@ use AichaDigital\MustacheResolver\Accessors\EloquentAccessor;
 use AichaDigital\MustacheResolver\Contracts\ContextInterface;
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
+use AichaDigital\MustacheResolver\Exceptions\ConfigurationException;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
 
@@ -51,20 +52,26 @@ final readonly class ResolutionContext implements ContextInterface
      * Create context from an Eloquent model with security validation.
      *
      * @param  array<string, mixed>  $securityConfig
+     *
+     * @throws ConfigurationException If $securityConfig still uses the removed 'allowed_models' key
      */
     public static function fromModel(Model $model, array $securityConfig = []): self
     {
         $validator = null;
 
         if (! empty($securityConfig)) {
-            /** @var array<string> $allowedModels */
-            $allowedModels = $securityConfig['allowed_models'] ?? [];
+            if (array_key_exists('allowed_models', $securityConfig)) {
+                throw ConfigurationException::renamedKey('allowed_models', 'allowed_root_models');
+            }
+
+            /** @var array<string> $allowedRootModels */
+            $allowedRootModels = $securityConfig['allowed_root_models'] ?? [];
             /** @var array<string> $blacklistedAttributes */
             $blacklistedAttributes = $securityConfig['blacklisted_attributes'] ?? [];
             $reporter = $securityConfig['reporter'] ?? null;
 
             $validator = new SecurityValidator(
-                allowedModels: $allowedModels,
+                allowedRootModels: $allowedRootModels,
                 blacklistedAttributes: $blacklistedAttributes,
                 maxDepth: (int) ($securityConfig['max_depth'] ?? 10),
                 mode: (string) ($securityConfig['mode'] ?? SecurityValidator::MODE_ENFORCE),

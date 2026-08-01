@@ -25,4 +25,11 @@ class ConfigurationException extends MustacheException
     {
         return new self("Required configuration key missing: {$key}");
     }
+
+    public static function renamedKey(string $old, string $new): self
+    {
+        return new self(
+            "Configuration key '{$old}' was renamed to '{$new}' in v3.0.0 — update your configuration"
+        );
+    }
 }

@@ -154,6 +154,8 @@ final class MustacheResolver
         }
 
         if (is_array($data)) {
+            $this->warnRootWhitelistInapplicable($data);
+
             return ResolutionContext::fromArray($data, $this->securityValidator)
                 ->withStrict($strict);
         }
@@ -166,7 +168,34 @@ final class MustacheResolver
         // the ONLY barrier protecting a plain-object data source — the
         // sanitizer cannot reconstruct a path DYNAMIC only discovers at
         // runtime, and was never meant to.
+        $this->warnRootWhitelistInapplicable($data);
+
         return ResolutionContext::fromArray(['model' => $data], $this->securityValidator)
             ->withStrict($strict);
+    }
+
+    /**
+     * A class whitelist cannot be applied when the root datum is not a model
+     * (spec §11.4): warn so a consumer who populated allowed_root_models and
+     * feeds arrays does not read a guarantee into it that does not exist.
+     */
+    private function warnRootWhitelistInapplicable(mixed $data): void
+    {
+        if ($this->securityValidator === null) {
+            return;
+        }
+
+        if ($this->securityValidator->getMode() === SecurityValidator::MODE_OFF) {
+            return;
+        }
+
+        if ($this->securityValidator->getAllowedRootModels() === []) {
+            return;
+        }
+
+        $this->securityValidator->reportViolation(
+            'mustache-resolver: allowed_root_models cannot be applied, the root datum is not a model',
+            ['type' => get_debug_type($data)],
+        );
     }
 }

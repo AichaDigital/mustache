@@ -103,8 +103,13 @@ return [
         // Default is 'report' (non-breaking). It will change to 'enforce' in v3.0.0.
         'mode' => env('MUSTACHE_SECURITY_MODE', 'report'),
 
-        // Restrict which model classes can be accessed
-        'allowed_models' => [], // Empty = all allowed
+        // Restrict which Eloquent model classes may be used as the ROOT data
+        // source. Fully-qualified class names only (::class). Empty = all
+        // allowed — this is opt-in hardening, not the primary barrier.
+        // It validates the root model only: a non-blacklisted attribute of a
+        // NESTED model resolves even when its class is absent from this list
+        // (nested serialization is covered by the container policy instead).
+        'allowed_root_models' => [],
 
         // Restrict which table names can be accessed
         // Reserved: currently not enforced. It will take effect (or be removed) in v3.0.0.

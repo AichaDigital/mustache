@@ -125,7 +125,7 @@ describe('Security wiring through the ServiceProvider', function () {
 
     it('logs instead of throwing for disallowed models in report mode', function () {
         config()->set('mustache-resolver.security.mode', 'report');
-        config()->set('mustache-resolver.security.allowed_models', ['Department']);
+        config()->set('mustache-resolver.security.allowed_root_models', [Department::class]);
         Log::spy();
 
         $result = Mustache::translate('Name: {{User.name}}', $this->user);
@@ -381,7 +381,7 @@ describe('Security wiring through the ServiceProvider', function () {
 
     it('throws for disallowed models in enforce mode', function () {
         config()->set('mustache-resolver.security.mode', 'enforce');
-        config()->set('mustache-resolver.security.allowed_models', ['Department']);
+        config()->set('mustache-resolver.security.allowed_root_models', [Department::class]);
 
         Mustache::translate('Name: {{User.name}}', $this->user);
     })->throws(ModelNotAllowedException::class);

@@ -3,8 +3,13 @@
 declare(strict_types=1);
 
 use AichaDigital\MustacheResolver\Accessors\EloquentAccessor;
+use AichaDigital\MustacheResolver\Cache\NullCache;
 use AichaDigital\MustacheResolver\Core\Context\ResolutionContext;
+use AichaDigital\MustacheResolver\Core\MustacheResolver;
+use AichaDigital\MustacheResolver\Core\Parser\MustacheParser;
+use AichaDigital\MustacheResolver\Core\Pipeline\PipelineBuilder;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
+use AichaDigital\MustacheResolver\Exceptions\ConfigurationException;
 use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
 use Workbench\App\Models\Department;
 use Workbench\App\Models\User;
@@ -24,9 +29,9 @@ beforeEach(function () {
 });
 
 describe('Model Security', function () {
-    describe('allowed_models validation', function () {
+    describe('allowed_root_models validation', function () {
         it('allows access when model is in allowed list', function () {
-            $config = ['allowed_models' => ['User']];
+            $config = ['allowed_root_models' => [User::class]];
             $context = ResolutionContext::fromModel($this->user, ['security' => $config] + $config);
 
             expect($context->get('name'))->toBe('John Doe');
@@ -43,7 +48,7 @@ describe('Model Security', function () {
         });
 
         it('allows access to related models when main model is allowed', function () {
-            $config = ['allowed_models' => ['User']]; // User allowed, relations are accessible
+            $config = ['allowed_root_models' => [User::class]]; // User allowed, relations are accessible
             $context = ResolutionContext::fromModel($this->user, ['security' => $config] + $config);
 
             // Relations are part of the allowed model's data
@@ -51,7 +56,7 @@ describe('Model Security', function () {
         });
 
         it('allows access when allowed list is empty', function () {
-            $config = ['allowed_models' => []];
+            $config = ['allowed_root_models' => []];
             $context = ResolutionContext::fromModel($this->user, ['security' => $config] + $config);
 
             expect($context->get('name'))->toBe('John Doe');
@@ -137,7 +142,7 @@ describe('Model Security', function () {
     describe('ResolutionContext::fromModel', function () {
         it('creates context with security validation', function () {
             $config = [
-                'allowed_models' => ['User'],
+                'allowed_root_models' => [User::class],
                 'blacklisted_attributes' => ['email'],
             ];
 
@@ -164,6 +169,39 @@ describe('Model Security', function () {
 
             // The invalid reporter is dropped: resolution proceeds without errors
             expect($context->get('email'))->toBe('john@example.com');
+        });
+
+        it('fromModel rejects the removed allowed_models key loudly', function () {
+            ResolutionContext::fromModel($this->user, [
+                'allowed_models' => ['User'],
+            ]);
+        })->throws(
+            ConfigurationException::class,
+            "Configuration key 'allowed_models' was renamed to 'allowed_root_models'",
+        );
+
+        it('warns that a class whitelist cannot apply to an array root datum', function () {
+            $reports = [];
+            $validator = new SecurityValidator(
+                allowedRootModels: [User::class],
+                mode: SecurityValidator::MODE_ENFORCE,
+                reporter: function (string $message, array $context = []) use (&$reports): void {
+                    $reports[] = $message;
+                },
+            );
+
+            $resolver = new MustacheResolver(
+                new MustacheParser,
+                PipelineBuilder::create()->build(),
+                new NullCache,
+                $validator,
+            );
+
+            $resolver->translate('{{User.name}}', ['User' => ['name' => 'John']]);
+
+            expect($reports)->toContain(
+                'mustache-resolver: allowed_root_models cannot be applied, the root datum is not a model'
+            );
         });
     });
 });
