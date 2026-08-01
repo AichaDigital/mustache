@@ -74,4 +74,21 @@ describe('SecurityConfigReconciler', function () {
         expect($result['security']['blacklisted_patterns'])->toBe(SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS);
         expect($result['absent'])->toContain('security.blacklisted_patterns', 'security.limits');
     });
+
+    it('reconciling the shipped config file itself is a no-op (drift guard)', function () {
+        // Reads the FILE, not config() (AID-589 lesson): the strongest
+        // guard against SecurityConfigReconciler::defaults() and the
+        // shipped config/mustache-resolver.php falling out of sync on key
+        // names. If a future rename touches one but not the other (e.g.
+        // allow_container_serialization renamed in the file only), that
+        // key reads as "absent" here and every fresh install would warn
+        // spuriously despite shipping a fully populated config.
+        /** @var array{security: array<string, mixed>} $file */
+        $file = require __DIR__.'/../../../config/mustache-resolver.php';
+
+        $result = SecurityConfigReconciler::reconcile($file['security']);
+
+        expect($result['absent'])->toBe([]);
+        expect($result['legacy_allowed_models'])->toBeFalse();
+    });
 });

@@ -110,8 +110,24 @@ describe('a v2-shaped published security config', function () {
 
 it('a fresh install runs enforce with no warning', function () {
     expect(config('mustache-resolver.security.mode'))->toBe('enforce');
-    // No absent keys: the package config carries every v3 key, so the
-    // ServiceProvider's own (first, natural) boot() never warns.
+
+    // The app's OWN provider already registered + booted once during
+    // Testbench's createApplication(), before this test body starts, so a
+    // spy started here cannot observe THAT boot() call. Feeding a fresh
+    // provider the already-reconciled shipped config -- config('mustache-
+    // resolver.security') at this point IS the fresh-install default,
+    // every v3 key present, nothing absent -- reproduces the same "fully
+    // populated config" input a real fresh install's natural boot() sees,
+    // and proves it stays silent (drift guard: if SecurityConfigReconciler
+    // ::defaults() ever falls out of sync with the shipped config file's
+    // key names, this goes red).
+    Log::spy();
+
+    /** @var array<string, mixed> $security */
+    $security = config('mustache-resolver.security');
+    bootFreshProviderAgainst($this->app, $security);
+
+    Log::shouldNotHaveReceived('warning');
 });
 
 it('an absent mode key yields one consistent effective mode for validator and parser', function () {
