@@ -17,13 +17,14 @@ use Illuminate\Database\Eloquent\Model;
  * Scope, precisely: every resolver in the default pipeline reached via
  * translate()'s token loop is covered, because that loop calls sanitize()
  * on every result unconditionally — a resolver cannot bypass it from
- * inside that loop. The known exception is compound expressions:
- * Core\Compound\UseVariableResolver calls the pipeline directly and
- * substitutes the resolved value without ever reaching this class. That
- * path is inert today — no default resolver handles TokenType::COMPOUND
- * and CompoundResolver is not registered anywhere — so it is not a live
- * gap, but it will need its own wiring when compound expressions are
- * exposed (Phase 2), not an assumption that this barrier already covers it.
+ * inside that loop. Compound expressions are covered separately, by their
+ * own instance of this class: Core\Compound\UseVariableResolver calls the
+ * pipeline directly, then passes every resolved value through its own
+ * sanitizer instance (default policy when none is injected — the same
+ * §11.2 rule as everywhere else) before it can be substituted. That path
+ * is still inert today — no default resolver handles TokenType::COMPOUND
+ * and CompoundResolver is not registered anywhere — but it is no longer a
+ * gap once compound expressions are exposed.
  */
 final readonly class OutputSanitizer
 {

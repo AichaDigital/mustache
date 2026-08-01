@@ -7,6 +7,8 @@ namespace AichaDigital\MustacheResolver\Core\Compound;
 use AichaDigital\MustacheResolver\Contracts\ContextInterface;
 use AichaDigital\MustacheResolver\Core\Parser\MustacheParser;
 use AichaDigital\MustacheResolver\Core\Pipeline\ResolutionPipeline;
+use AichaDigital\MustacheResolver\Core\Security\OutputSanitizer;
+use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Exceptions\ConditionNotMetException;
 use AichaDigital\MustacheResolver\Exceptions\UnresolvableException;
 use AichaDigital\MustacheResolver\Exceptions\VariableNotResolvedException;
@@ -23,11 +25,17 @@ final class UseVariableResolver
 
     private MustacheParser $parser;
 
+    private readonly OutputSanitizer $sanitizer;
+
     public function __construct(
         private readonly ResolutionPipeline $pipeline,
+        ?OutputSanitizer $sanitizer = null,
     ) {
         $this->conditionEvaluator = new ConditionEvaluator;
         $this->parser = new MustacheParser;
+        // §11.2: null means the default policy, here too — this class is the
+        // one public exit that bypassed barrier 2 in phase 1.
+        $this->sanitizer = $sanitizer ?? new OutputSanitizer(SecurityValidator::defaultPolicy());
     }
 
     /**
@@ -63,6 +71,18 @@ final class UseVariableResolver
                 'No resolver could handle the expression: '.$e->getMessage(),
             );
         }
+
+        $sanitized = $this->sanitizer->sanitize($value, $token);
+
+        if ($sanitized->blocked) {
+            throw new VariableNotResolvedException(
+                $variable->getName(),
+                $expression,
+                'Expression blocked by security policy',
+            );
+        }
+
+        $value = $sanitized->value;
 
         if ($value === null) {
             throw new VariableNotResolvedException(

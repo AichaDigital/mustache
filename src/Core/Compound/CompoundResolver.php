@@ -6,6 +6,7 @@ namespace AichaDigital\MustacheResolver\Core\Compound;
 
 use AichaDigital\MustacheResolver\Contracts\ContextInterface;
 use AichaDigital\MustacheResolver\Core\Pipeline\ResolutionPipeline;
+use AichaDigital\MustacheResolver\Core\Security\OutputSanitizer;
 use AichaDigital\MustacheResolver\Exceptions\ConditionNotMetException;
 use AichaDigital\MustacheResolver\Exceptions\InvalidUseSyntaxException;
 use AichaDigital\MustacheResolver\Exceptions\VariableNotResolvedException;
@@ -30,9 +31,10 @@ final class CompoundResolver
 
     public function __construct(
         private readonly ResolutionPipeline $pipeline,
+        ?OutputSanitizer $sanitizer = null,
     ) {
         $this->parser = new CompoundExpressionParser;
-        $this->variableResolver = new UseVariableResolver($pipeline);
+        $this->variableResolver = new UseVariableResolver($pipeline, $sanitizer);
         $this->replacer = new LocalVariableReplacer;
     }
 
