@@ -108,7 +108,7 @@ class MustacheServiceProvider extends ServiceProvider
     protected function registerSecurity(): void
     {
         $this->app->singleton(SecurityValidator::class, function ($app) {
-            /** @var array{allowed_models?: array<string>, blacklisted_attributes?: array<string>, max_depth?: int, mode?: string} $config */
+            /** @var array{allowed_models?: array<string>, blacklisted_attributes?: array<string>, blacklisted_patterns?: array<string>, max_depth?: int, mode?: string} $config */
             $config = $app['config']['mustache-resolver']['security'] ?? [];
 
             $mode = $config['mode'] ?? SecurityValidator::MODE_REPORT;
@@ -140,6 +140,9 @@ class MustacheServiceProvider extends ServiceProvider
             return new SecurityValidator(
                 allowedModels: $config['allowed_models'] ?? [],
                 blacklistedAttributes: $config['blacklisted_attributes'] ?? [],
+                blacklistedPatterns: array_key_exists('blacklisted_patterns', $config)
+                    ? $config['blacklisted_patterns']
+                    : SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS,
                 maxDepth: $config['max_depth'] ?? 10,
                 mode: $mode,
                 reporter: function (string $message, array $context = []) use (&$reported) {

@@ -74,7 +74,7 @@ describe('ArrayAccessor', function () {
         });
 
         it('blocks paths exceeding max_depth (enforce)', function () {
-            $validator = new SecurityValidator([], [], 1);
+            $validator = new SecurityValidator([], [], [], 1);
             $accessor = new ArrayAccessor(['user' => ['name' => 'John']], $validator);
 
             expect($accessor->get('user'))->toBe(['name' => 'John']);
@@ -86,6 +86,7 @@ describe('ArrayAccessor', function () {
             $validator = new SecurityValidator(
                 [],
                 ['secret'],
+                [],
                 10,
                 SecurityValidator::MODE_REPORT,
                 function (string $message, array $context = []) use (&$reported) {
@@ -101,6 +102,7 @@ describe('ArrayAccessor', function () {
             $validator = new SecurityValidator(
                 [],
                 ['api_token'],
+                [],
                 10,
                 SecurityValidator::MODE_REPORT,
                 function (string $message, array $context = []) use (&$reported) {

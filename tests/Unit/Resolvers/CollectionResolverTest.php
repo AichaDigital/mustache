@@ -406,7 +406,7 @@ describe('CollectionResolver → security policy', function () {
     });
 
     it('blocks collection paths exceeding max_depth', function () {
-        $context = ResolutionContext::fromArray($this->data, new SecurityValidator([], [], 1));
+        $context = ResolutionContext::fromArray($this->data, new SecurityValidator([], [], [], 1));
         $token = Token::create('User.posts.0.title', TokenType::COLLECTION, ['User', 'posts', '0', 'title']);
 
         expect($this->resolver->resolve($token, $context))->toBeNull();
@@ -417,6 +417,7 @@ describe('CollectionResolver → security policy', function () {
         $validator = new SecurityValidator(
             [],
             ['title'],
+            [],
             10,
             SecurityValidator::MODE_REPORT,
             function (string $message, array $context = []) use (&$reported) {

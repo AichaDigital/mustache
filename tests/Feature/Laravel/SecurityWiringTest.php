@@ -429,6 +429,22 @@ describe('Security wiring through the ServiceProvider', function () {
         expect($array['resolved_values']['User.created_at'])->toBeString();
     });
 
+    it('blocks pattern-matched attributes end to end in enforce mode', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+
+        // Lowercase 'user' key, matching the array-data-path style used
+        // elsewhere in this file (e.g. "applies the blacklist on the
+        // array data path"): a PascalCase prefix classifies as a MODEL
+        // token, which strips the prefix and navigates the data itself
+        // (correct for a real Eloquent model, wrong for this array
+        // fixture) rather than a nested key of the given name.
+        $data = ['user' => ['auth_token' => 'tok_123', 'name' => 'John']];
+        $result = Mustache::translate('Token: {{user.auth_token}} / Name: {{user.name}}', $data);
+
+        expect($result->getTranslated())->toBe('Token:  / Name: John');
+        expect($result->getResolvedValues()['user.auth_token'] ?? null)->toBeNull();
+    });
+
     it('changes nothing for a consumer on the shipped default mode, report (Phase 1 promise)', function () {
         // No config()->set() here on purpose: this exercises the
         // ServiceProvider's actual shipped default (security.mode =

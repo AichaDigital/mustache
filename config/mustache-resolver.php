@@ -132,5 +132,22 @@ return [
             'api_token',
             'secret',
         ],
+
+        // Attribute name patterns blocked in addition to the exact names above.
+        // Glob-style (Str::is), case-insensitive, applied to every path segment.
+        // Catches real-world renames of sensitive fields (auth_token, stripe_key,
+        // password_plain, ...). Expect occasional false positives (public_key,
+        // sort_key): they are visible in the log and removable here.
+        // An explicit [] disables pattern matching deliberately.
+        'blacklisted_patterns' => [
+            '*_token',
+            '*_secret',
+            '*_key',
+            '*password*',
+            '*_hash',
+            'otp',
+            'pin',
+            'cvv',
+        ],
     ],
 ];

@@ -6,6 +6,7 @@ namespace AichaDigital\MustacheResolver\Core\Security;
 
 use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
 use Closure;
+use Illuminate\Support\Str;
 
 /**
  * Validates security constraints for model and attribute access.
@@ -24,13 +25,32 @@ final readonly class SecurityValidator
     public const MODE_ENFORCE = 'enforce';
 
     /**
+     * Default glob patterns catching real-world renames of sensitive fields.
+     * Accepted cost: occasional false positives (public_key, sort_key), visible
+     * in the log and removable by config. A blacklist can always be evaded by
+     * renaming — patterns raise the floor, they are not a complete defence.
+     */
+    public const DEFAULT_BLACKLISTED_PATTERNS = [
+        '*_token',
+        '*_secret',
+        '*_key',
+        '*password*',
+        '*_hash',
+        'otp',
+        'pin',
+        'cvv',
+    ];
+
+    /**
      * @param  array<string>  $allowedModels
      * @param  array<string>  $blacklistedAttributes
+     * @param  array<string>  $blacklistedPatterns
      * @param  (Closure(string, array<string, mixed>): void)|null  $reporter
      */
     public function __construct(
         private array $allowedModels = [],
         private array $blacklistedAttributes = [],
+        private array $blacklistedPatterns = [],
         private int $maxDepth = 10,
         private string $mode = self::MODE_ENFORCE,
         private ?Closure $reporter = null,
@@ -137,6 +157,15 @@ final readonly class SecurityValidator
 
         foreach ($this->blacklistedAttributes as $blacklisted) {
             if (strtolower($blacklisted) === $attribute) {
+                return true;
+            }
+        }
+
+        // Glob-style, case-insensitive (both sides lowercased). Str::is()
+        // preg-quotes everything except '*', so consumer-supplied config
+        // cannot inject a catastrophic backtracking pattern.
+        foreach ($this->blacklistedPatterns as $pattern) {
+            if (Str::is(strtolower($pattern), $attribute)) {
                 return true;
             }
         }

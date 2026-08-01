@@ -65,16 +65,68 @@ describe('SecurityValidator', function () {
         });
     });
 
+    describe('blacklisted patterns', function () {
+        it('blocks attributes matching a glob pattern', function (string $attribute) {
+            $validator = new SecurityValidator(
+                blacklistedPatterns: ['*_token', '*password*', 'otp'],
+            );
+
+            expect($validator->isAttributeBlacklisted($attribute))->toBeTrue();
+        })->with(['auth_token', 'password_plain', 'user_password_old', 'otp']);
+
+        it('matches patterns case-insensitively', function () {
+            $validator = new SecurityValidator(blacklistedPatterns: ['*_token']);
+
+            expect($validator->isAttributeBlacklisted('Auth_Token'))->toBeTrue();
+            expect($validator->isAttributeBlacklisted('AUTH_TOKEN'))->toBeTrue();
+        });
+
+        it('documents the accepted false positive: public_key matches *_key', function () {
+            $validator = new SecurityValidator(
+                blacklistedPatterns: SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS,
+            );
+
+            // Accepted cost per spec §4.1: visible in the log, removable by config.
+            expect($validator->isAttributeBlacklisted('public_key'))->toBeTrue();
+            expect($validator->isAttributeBlacklisted('sort_key'))->toBeTrue();
+        });
+
+        it('does not block non-matching attributes', function (string $attribute) {
+            $validator = new SecurityValidator(
+                blacklistedPatterns: SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS,
+            );
+
+            expect($validator->isAttributeBlacklisted($attribute))->toBeFalse();
+        })->with(['name', 'email', 'keyboard', 'options', 'tokenizer']);
+
+        it('applies patterns through allowsPath on every segment', function () {
+            $validator = new SecurityValidator(
+                blacklistedPatterns: ['*_token'],
+                mode: SecurityValidator::MODE_ENFORCE,
+            );
+
+            expect($validator->allowsPath('User.auth_token'))->toBeFalse();
+            expect($validator->allowsPath('User.profile.refresh_token'))->toBeFalse();
+            expect($validator->allowsPath('User.name'))->toBeTrue();
+        });
+
+        it('an empty pattern list disables pattern matching', function () {
+            $validator = new SecurityValidator(blacklistedPatterns: []);
+
+            expect($validator->isAttributeBlacklisted('auth_token'))->toBeFalse();
+        });
+    });
+
     describe('isDepthExceeded', function () {
         it('returns true when depth exceeds max', function () {
-            $validator = new SecurityValidator([], [], 5);
+            $validator = new SecurityValidator([], [], [], 5);
 
             expect($validator->isDepthExceeded(6))->toBeTrue();
             expect($validator->isDepthExceeded(10))->toBeTrue();
         });
 
         it('returns false when depth is within limit', function () {
-            $validator = new SecurityValidator([], [], 5);
+            $validator = new SecurityValidator([], [], [], 5);
 
             expect($validator->isDepthExceeded(1))->toBeFalse();
             expect($validator->isDepthExceeded(5))->toBeFalse();
@@ -102,7 +154,7 @@ describe('SecurityValidator', function () {
 
     describe('allowsPath', function () {
         it('allows paths without violations', function () {
-            $validator = new SecurityValidator([], ['password'], 10);
+            $validator = new SecurityValidator([], ['password'], [], 10);
 
             expect($validator->allowsPath('name'))->toBeTrue();
             expect($validator->allowsPath('department.name'))->toBeTrue();
@@ -118,14 +170,14 @@ describe('SecurityValidator', function () {
         });
 
         it('blocks paths exceeding max_depth (enforce)', function () {
-            $validator = new SecurityValidator([], [], 1);
+            $validator = new SecurityValidator([], [], [], 1);
 
             expect($validator->allowsPath('name'))->toBeTrue();
             expect($validator->allowsPath('department.name'))->toBeFalse();
         });
 
         it('allows everything in off mode', function () {
-            $validator = new SecurityValidator([], ['password'], 1, SecurityValidator::MODE_OFF);
+            $validator = new SecurityValidator([], ['password'], [], 1, SecurityValidator::MODE_OFF);
 
             expect($validator->allowsPath('password'))->toBeTrue();
             expect($validator->allowsPath('a.b.c.d.e'))->toBeTrue();
@@ -136,6 +188,7 @@ describe('SecurityValidator', function () {
             $validator = new SecurityValidator(
                 [],
                 ['password'],
+                [],
                 10,
                 SecurityValidator::MODE_REPORT,
                 function (string $message, array $context = []) use (&$reported) {
@@ -155,6 +208,7 @@ describe('SecurityValidator', function () {
             $validator = new SecurityValidator(
                 [],
                 [],
+                [],
                 1,
                 SecurityValidator::MODE_REPORT,
                 function (string $message, array $context = []) use (&$reported) {
@@ -169,7 +223,7 @@ describe('SecurityValidator', function () {
         });
 
         it('does not fail in report mode without a reporter', function () {
-            $validator = new SecurityValidator([], ['password'], 10, SecurityValidator::MODE_REPORT);
+            $validator = new SecurityValidator([], ['password'], [], 10, SecurityValidator::MODE_REPORT);
 
             expect($validator->allowsPath('password'))->toBeTrue();
         });
@@ -179,6 +233,7 @@ describe('SecurityValidator', function () {
             $validator = new SecurityValidator(
                 [],
                 ['password'],
+                [],
                 1,
                 SecurityValidator::MODE_REPORT,
                 function (string $message, array $context = []) use (&$reported) {
@@ -199,6 +254,7 @@ describe('SecurityValidator', function () {
             $validator = new SecurityValidator(
                 ['User'],
                 [],
+                [],
                 10,
                 SecurityValidator::MODE_REPORT,
                 function (string $message, array $context = []) use (&$reported) {
@@ -213,7 +269,7 @@ describe('SecurityValidator', function () {
         });
 
         it('does nothing in off mode', function () {
-            $validator = new SecurityValidator(['User'], [], 10, SecurityValidator::MODE_OFF);
+            $validator = new SecurityValidator(['User'], [], [], 10, SecurityValidator::MODE_OFF);
 
             expect(fn () => $validator->validateModel('App\Models\Device'))
                 ->not->toThrow(ModelNotAllowedException::class);
@@ -241,6 +297,7 @@ describe('SecurityValidator', function () {
             $validator = new SecurityValidator(
                 [],
                 ['password'],
+                [],
                 10,
                 SecurityValidator::MODE_ENFORCE,
                 function (string $message, array $context = []) use (&$reported) {
@@ -257,6 +314,7 @@ describe('SecurityValidator', function () {
         it('reports depth blocks in enforce mode', function () {
             $reported = [];
             $validator = new SecurityValidator(
+                [],
                 [],
                 [],
                 1,
@@ -276,6 +334,7 @@ describe('SecurityValidator', function () {
             $validator = new SecurityValidator(
                 [],
                 ['password'],
+                [],
                 10,
                 SecurityValidator::MODE_ENFORCE,
                 function (string $message, array $context = []) use (&$reported) {
