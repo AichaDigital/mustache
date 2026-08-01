@@ -10,30 +10,11 @@ use AichaDigital\MustacheResolver\Temporal\Conditions\WeekdayCondition;
 use Carbon\Carbon;
 
 beforeEach(function () {
-    ConditionRegistry::resetInstance();
     $this->registry = new ConditionRegistry;
 });
 
 afterEach(function () {
-    ConditionRegistry::resetInstance();
     Carbon::setTestNow();
-});
-
-describe('ConditionRegistry → Singleton', function () {
-    it('returns singleton instance', function () {
-        $instance1 = ConditionRegistry::getInstance();
-        $instance2 = ConditionRegistry::getInstance();
-
-        expect($instance1)->toBe($instance2);
-    });
-
-    it('resets singleton instance', function () {
-        $instance1 = ConditionRegistry::getInstance();
-        ConditionRegistry::resetInstance();
-        $instance2 = ConditionRegistry::getInstance();
-
-        expect($instance1)->not->toBe($instance2);
-    });
 });
 
 describe('ConditionRegistry → Built-in Conditions', function () {

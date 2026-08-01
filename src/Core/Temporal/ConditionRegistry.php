@@ -26,31 +26,9 @@ final class ConditionRegistry
     /** @var array<string, callable(DateTimeInterface): bool> */
     private array $customEvaluators = [];
 
-    private static ?self $instance = null;
-
     public function __construct()
     {
         $this->registerBuiltIn();
-    }
-
-    /**
-     * Get the global singleton instance.
-     */
-    public static function getInstance(): self
-    {
-        if (self::$instance === null) {
-            self::$instance = new self;
-        }
-
-        return self::$instance;
-    }
-
-    /**
-     * Reset the global singleton instance.
-     */
-    public static function resetInstance(): void
-    {
-        self::$instance = null;
     }
 
     /**

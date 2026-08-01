@@ -111,10 +111,6 @@ return [
         // (nested serialization is covered by the container policy instead).
         'allowed_root_models' => [],
 
-        // Restrict which table names can be accessed
-        // Reserved: currently not enforced. It will take effect (or be removed) in v3.0.0.
-        'allowed_tables' => [], // Empty = all allowed
-
         // Maximum nesting depth for relation chains
         'max_depth' => 10,
 
