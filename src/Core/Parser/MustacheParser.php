@@ -9,6 +9,7 @@ use AichaDigital\MustacheResolver\Contracts\TokenInterface;
 use AichaDigital\MustacheResolver\Core\Token\Token;
 use AichaDigital\MustacheResolver\Core\Token\TokenCollection;
 use AichaDigital\MustacheResolver\Exceptions\InvalidSyntaxException;
+use AichaDigital\MustacheResolver\Exceptions\SecurityException;
 
 /**
  * Parses template strings and extracts mustache tokens.
@@ -17,6 +18,15 @@ final class MustacheParser implements ParserInterface
 {
     private const PATTERN = '/\{\{([^{}]+)\}\}/';
 
+    public const DEFAULT_MAX_TEMPLATE_LENGTH = 100_000;
+
+    public const DEFAULT_MAX_TOKENS = 1_000;
+
+    public function __construct(
+        private readonly ?int $maxTemplateLength = self::DEFAULT_MAX_TEMPLATE_LENGTH,
+        private readonly ?int $maxTokens = self::DEFAULT_MAX_TOKENS,
+    ) {}
+
     /**
      * Parse a template string and extract all mustache tokens.
      *
@@ -24,9 +34,18 @@ final class MustacheParser implements ParserInterface
      */
     public function parse(string $template): array
     {
+        if ($this->maxTemplateLength !== null && strlen($template) > $this->maxTemplateLength) {
+            throw SecurityException::templateTooLong(strlen($template), $this->maxTemplateLength);
+        }
+
         $this->validateSyntax($template);
 
         $rawMustaches = $this->extractRaw($template);
+
+        if ($this->maxTokens !== null && count($rawMustaches) > $this->maxTokens) {
+            throw SecurityException::tooManyTokens(count($rawMustaches), $this->maxTokens);
+        }
+
         $tokens = [];
 
         foreach ($rawMustaches as $mustache) {
@@ -44,6 +63,10 @@ final class MustacheParser implements ParserInterface
 
     /**
      * Check if a template contains any mustache patterns.
+     *
+     * Stays unlimited on purpose: it changes no state and only gates
+     * MustacheResolver::translate()'s early return, not resolution.
+     * The length/token limits guard parse(), which does the actual work.
      */
     public function hasMustaches(string $template): bool
     {

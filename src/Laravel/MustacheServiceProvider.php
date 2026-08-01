@@ -70,8 +70,27 @@ class MustacheServiceProvider extends ServiceProvider
      */
     protected function registerParser(): void
     {
-        $this->app->singleton(ParserInterface::class, function () {
-            return new MustacheParser;
+        $this->app->singleton(ParserInterface::class, function ($app) {
+            /** @var array<string, mixed> $security */
+            $security = $app['config']['mustache-resolver']['security'] ?? [];
+
+            // Limits throw; report must not change behaviour vs v2.1, so only
+            // enforce wires them. off keeps the explicit "no checks" promise.
+            if (($security['mode'] ?? SecurityValidator::MODE_ENFORCE) !== SecurityValidator::MODE_ENFORCE) {
+                return new MustacheParser(maxTemplateLength: null, maxTokens: null);
+            }
+
+            /** @var array<string, mixed> $limits */
+            $limits = $security['limits'] ?? [];
+
+            return new MustacheParser(
+                maxTemplateLength: array_key_exists('max_template_length', $limits)
+                    ? $limits['max_template_length']
+                    : MustacheParser::DEFAULT_MAX_TEMPLATE_LENGTH,
+                maxTokens: array_key_exists('max_tokens', $limits)
+                    ? $limits['max_tokens']
+                    : MustacheParser::DEFAULT_MAX_TOKENS,
+            );
         });
     }
 

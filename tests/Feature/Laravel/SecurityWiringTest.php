@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
+use AichaDigital\MustacheResolver\Exceptions\SecurityException;
 use AichaDigital\MustacheResolver\Laravel\Facades\Mustache;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -454,4 +455,20 @@ describe('Security wiring through the ServiceProvider', function () {
 
         expect($result->getResolvedValues()['User.created_at'])->toBeInstanceOf(Carbon::class);
     });
+
+    it('does not throw on a template over max_tokens in report mode (report changes nothing)', function () {
+        config()->set('mustache-resolver.security.mode', 'report');
+        config()->set('mustache-resolver.security.limits.max_tokens', 2);
+
+        $result = Mustache::translate('{{User.name}} {{User.email}} {{User.id}}', $this->user);
+
+        expect($result->isSuccess())->toBeTrue();
+    });
+
+    it('throws on a template over max_tokens in enforce mode', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.limits.max_tokens', 2);
+
+        Mustache::translate('{{User.name}} {{User.email}} {{User.id}}', $this->user);
+    })->throws(SecurityException::class);
 });

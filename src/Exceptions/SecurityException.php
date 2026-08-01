@@ -23,4 +23,14 @@ class SecurityException extends MustacheException
     {
         return new self("Expression contains dangerous patterns: {$expression}");
     }
+
+    public static function templateTooLong(int $length, int $max): self
+    {
+        return new self("Template length {$length} exceeds the configured maximum of {$max} characters");
+    }
+
+    public static function tooManyTokens(int $count, int $max): self
+    {
+        return new self("Template contains {$count} mustache tokens, exceeding the configured maximum of {$max}");
+    }
 }

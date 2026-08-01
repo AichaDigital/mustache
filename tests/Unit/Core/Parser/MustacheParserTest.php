@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AichaDigital\MustacheResolver\Core\Parser\MustacheParser;
 use AichaDigital\MustacheResolver\Core\Token\TokenType;
 use AichaDigital\MustacheResolver\Exceptions\InvalidSyntaxException;
+use AichaDigital\MustacheResolver\Exceptions\SecurityException;
 
 beforeEach(function () {
     $this->parser = new MustacheParser;
@@ -119,5 +120,50 @@ describe('MustacheParser → syntax validation', function () {
     it('throws on nested mustaches', function () {
         expect(fn () => $this->parser->parse('Hello {{{{nested}}}}!'))
             ->toThrow(InvalidSyntaxException::class);
+    });
+});
+
+describe('parser limits', function () {
+    it('throws when the template exceeds max length', function () {
+        $parser = new MustacheParser(maxTemplateLength: 50, maxTokens: null);
+
+        $parser->parse(str_repeat('x', 40).'{{User.name}}'.str_repeat('x', 40));
+    })->throws(
+        SecurityException::class,
+        'exceeds the configured maximum',
+    );
+
+    it('accepts a template exactly at max length', function () {
+        $template = '{{User.name}}';
+        $parser = new MustacheParser(maxTemplateLength: strlen($template), maxTokens: null);
+
+        expect($parser->parse($template))->toHaveCount(1);
+    });
+
+    it('throws when the template exceeds max tokens', function () {
+        $parser = new MustacheParser(maxTemplateLength: null, maxTokens: 2);
+
+        $parser->parse('{{a}} {{b}} {{c}}');
+    })->throws(
+        SecurityException::class,
+        'exceeding the configured maximum',
+    );
+
+    it('accepts a template exactly at max tokens', function () {
+        $parser = new MustacheParser(maxTemplateLength: null, maxTokens: 2);
+
+        expect($parser->parse('{{a}} {{b}}'))->toHaveCount(2);
+    });
+
+    it('null disables both limits', function () {
+        $parser = new MustacheParser(maxTemplateLength: null, maxTokens: null);
+
+        expect($parser->parse(str_repeat('{{a}} ', 2000)))->toHaveCount(2000);
+    });
+
+    it('applies generous defaults out of the box', function () {
+        $parser = new MustacheParser;
+
+        expect($parser->parse('{{User.name}}'))->toHaveCount(1);
     });
 });

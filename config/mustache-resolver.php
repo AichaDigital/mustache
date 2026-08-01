@@ -150,5 +150,14 @@ return [
             'pin',
             'cvv',
         ],
+
+        // Parse-time ceilings guarding resolution amplification (a template
+        // with many relation paths multiplies lazy queries). Applied only when
+        // mode is 'enforce' — a new throw in report mode would break the
+        // "report changes nothing" invariant. null = unlimited.
+        'limits' => [
+            'max_template_length' => env('MUSTACHE_SECURITY_MAX_TEMPLATE_LENGTH', 100000),
+            'max_tokens' => env('MUSTACHE_SECURITY_MAX_TOKENS', 1000),
+        ],
     ],
 ];
