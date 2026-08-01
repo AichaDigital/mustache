@@ -40,10 +40,10 @@ describe('Security wiring through the ServiceProvider', function () {
         expect($result->getTranslated())->toBe('Department: Engineering');
     });
 
-    it('registers the SecurityValidator from config with report mode by default', function () {
+    it('registers the SecurityValidator from config with enforce mode by default (v3)', function () {
         $validator = app(SecurityValidator::class);
 
-        expect($validator->getMode())->toBe(SecurityValidator::MODE_REPORT);
+        expect($validator->getMode())->toBe(SecurityValidator::MODE_ENFORCE);
         expect($validator->isAttributeBlacklisted('password'))->toBeTrue();
     });
 
@@ -446,11 +446,14 @@ describe('Security wiring through the ServiceProvider', function () {
         expect($result->getResolvedValues()['user.auth_token'] ?? null)->toBeNull();
     });
 
-    it('changes nothing for a consumer on the shipped default mode, report (Phase 1 promise)', function () {
-        // No config()->set() here on purpose: this exercises the
-        // ServiceProvider's actual shipped default (security.mode =
-        // 'report'). A consumer who installs this branch without touching
-        // config must see IDENTICAL behaviour to before this phase.
+    it('changes nothing for a consumer using explicit report mode (Phase 1 promise, still available in v3)', function () {
+        // v3 flips the shipped DEFAULT to enforce (see the "registers the
+        // SecurityValidator from config with enforce mode by default"
+        // test above); report mode itself is unchanged and still opts a
+        // consumer all the way back out of type coercion when chosen
+        // explicitly.
+        config()->set('mustache-resolver.security.mode', 'report');
+
         $result = Mustache::translate('Created: {{User.created_at}}', $this->user);
 
         expect($result->getResolvedValues()['User.created_at'])->toBeInstanceOf(Carbon::class);

@@ -19,6 +19,11 @@ use Illuminate\Support\ServiceProvider;
 
 class MustacheServiceProvider extends ServiceProvider
 {
+    /** @var list<string> */
+    private array $absentSecurityKeys = [];
+
+    private bool $legacyAllowedModelsDetected = false;
+
     /**
      * Register any application services.
      */
@@ -28,6 +33,8 @@ class MustacheServiceProvider extends ServiceProvider
             __DIR__.'/../../config/mustache-resolver.php',
             'mustache-resolver'
         );
+
+        $this->reconcileSecurityConfig();
 
         $this->registerCache();
         $this->registerParser();
@@ -46,6 +53,62 @@ class MustacheServiceProvider extends ServiceProvider
                 __DIR__.'/../../config/mustache-resolver.php' => config_path('mustache-resolver.php'),
             ], 'mustache-resolver-config');
         }
+
+        if ($this->absentSecurityKeys !== [] || $this->legacyAllowedModelsDetected) {
+            $this->warnAboutIncompleteSecurityConfig();
+        }
+    }
+
+    /**
+     * Runs on every request on purpose: under a config cache built before the
+     * upgrade, mergeConfigFrom() is skipped entirely and the cached block is
+     * the consumer's v2 file — this is the only place absence can be detected.
+     */
+    protected function reconcileSecurityConfig(): void
+    {
+        $config = $this->app->make('config');
+
+        /** @var array<string, mixed> $security */
+        $security = $config->get('mustache-resolver.security', []);
+
+        $result = SecurityConfigReconciler::reconcile($security);
+
+        $config->set('mustache-resolver.security', $result['security']);
+        $this->absentSecurityKeys = $result['absent'];
+        $this->legacyAllowedModelsDetected = $result['legacy_allowed_models'];
+    }
+
+    /**
+     * The warning must state: which keys were absent and what defaults now
+     * apply, the effective mode, the report-only caveat, the exact edit
+     * required, and a link to UPGRADE-3.md. It must NOT assert which file
+     * the configuration came from — under cached config that cannot be
+     * verified (spec §11.1).
+     */
+    protected function warnAboutIncompleteSecurityConfig(): void
+    {
+        /** @var string $mode */
+        $mode = $this->app->make('config')->get('mustache-resolver.security.mode', SecurityValidator::MODE_ENFORCE);
+
+        $context = [
+            'absent_keys_filled_with_v3_defaults' => $this->absentSecurityKeys,
+            'effective_mode' => $mode,
+            'action' => 'Add the listed keys to your published mustache-resolver.php config (or re-publish it), then review UPGRADE-3.md.',
+        ];
+
+        if ($this->legacyAllowedModelsDetected) {
+            $context['renamed_key'] = 'security.allowed_models is now security.allowed_root_models '
+                .'(FQCN-only, validates the root model only). Its value was carried over; rename the key.';
+        }
+
+        if ($mode === SecurityValidator::MODE_REPORT) {
+            $context['report_mode'] = 'Under report mode the v3 protections only report, they do not block.';
+        }
+
+        Log::warning(
+            'mustache-resolver: security configuration is missing v3 keys; defaults were applied for this runtime',
+            $context,
+        );
     }
 
     /**
@@ -130,7 +193,7 @@ class MustacheServiceProvider extends ServiceProvider
             /** @var array{allowed_root_models?: array<string>, blacklisted_attributes?: array<string>, blacklisted_patterns?: array<string>, max_depth?: int, mode?: string} $config */
             $config = $app['config']['mustache-resolver']['security'] ?? [];
 
-            $mode = $config['mode'] ?? SecurityValidator::MODE_REPORT;
+            $mode = $config['mode'] ?? SecurityValidator::MODE_ENFORCE;
 
             // An invalid mode fails closed (enforce) rather than leaving the app unprotected
             if (! in_array($mode, [SecurityValidator::MODE_OFF, SecurityValidator::MODE_REPORT, SecurityValidator::MODE_ENFORCE], true)) {
@@ -158,7 +221,9 @@ class MustacheServiceProvider extends ServiceProvider
 
             return new SecurityValidator(
                 allowedRootModels: $config['allowed_root_models'] ?? [],
-                blacklistedAttributes: $config['blacklisted_attributes'] ?? [],
+                blacklistedAttributes: array_key_exists('blacklisted_attributes', $config)
+                    ? $config['blacklisted_attributes']
+                    : SecurityValidator::DEFAULT_BLACKLISTED_ATTRIBUTES,
                 blacklistedPatterns: array_key_exists('blacklisted_patterns', $config)
                     ? $config['blacklisted_patterns']
                     : SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS,
