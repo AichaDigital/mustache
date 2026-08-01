@@ -5,18 +5,25 @@ declare(strict_types=1);
 namespace AichaDigital\MustacheResolver\Accessors;
 
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
+use AichaDigital\MustacheResolver\Contracts\SecurityAwareAccessorInterface;
+use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 
 /**
  * Data accessor for generic PHP objects.
  */
-final readonly class ObjectAccessor implements DataAccessorInterface
+final readonly class ObjectAccessor implements DataAccessorInterface, SecurityAwareAccessorInterface
 {
     public function __construct(
         private object $object,
+        private ?SecurityValidator $securityValidator = null,
     ) {}
 
     public function get(string $path): mixed
     {
+        if (! $this->allowsPath($path)) {
+            return null;
+        }
+
         $segments = explode('.', $path);
         $current = $this->object;
 
@@ -29,6 +36,14 @@ final readonly class ObjectAccessor implements DataAccessorInterface
         }
 
         return $current;
+    }
+
+    /**
+     * Check every segment against the blacklist and the path depth.
+     */
+    public function allowsPath(string $path): bool
+    {
+        return $this->securityValidator === null || $this->securityValidator->allowsPath($path);
     }
 
     public function has(string $path): bool

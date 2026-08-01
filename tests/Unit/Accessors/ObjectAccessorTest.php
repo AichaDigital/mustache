@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use AichaDigital\MustacheResolver\Accessors\ObjectAccessor;
 use AichaDigital\MustacheResolver\Contracts\DataAccessorInterface;
+use AichaDigital\MustacheResolver\Contracts\SecurityAwareAccessorInterface;
+use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 
 describe('ObjectAccessor', function () {
     it('implements DataAccessorInterface', function () {
@@ -164,5 +166,57 @@ describe('ObjectAccessor', function () {
         $accessor = new ObjectAccessor($obj);
 
         expect($accessor->get('missing'))->toBeNull();
+    });
+});
+
+describe('security awareness (v3)', function () {
+    it('implements SecurityAwareAccessorInterface', function () {
+        $accessor = new ObjectAccessor(new stdClass);
+
+        expect($accessor)->toBeInstanceOf(
+            SecurityAwareAccessorInterface::class
+        );
+    });
+
+    it('blocks a blacklisted property in enforce mode', function () {
+        $obj = new stdClass;
+        $obj->password = 'secret-value';
+        $obj->name = 'John';
+
+        $accessor = new ObjectAccessor($obj, new SecurityValidator(
+            blacklistedAttributes: ['password'],
+            mode: SecurityValidator::MODE_ENFORCE,
+        ));
+
+        // Fixture guard: without a validator the value IS there.
+        expect((new ObjectAccessor($obj))->get('password'))->toBe('secret-value');
+
+        expect($accessor->get('password'))->toBeNull();
+        expect($accessor->get('name'))->toBe('John');
+        expect($accessor->has('password'))->toBeFalse();
+    });
+
+    it('reports but resolves in report mode', function () {
+        $obj = new stdClass;
+        $obj->password = 'secret-value';
+
+        $reports = [];
+        $accessor = new ObjectAccessor($obj, new SecurityValidator(
+            blacklistedAttributes: ['password'],
+            mode: SecurityValidator::MODE_REPORT,
+            reporter: function (string $message, array $context = []) use (&$reports): void {
+                $reports[] = $message;
+            },
+        ));
+
+        expect($accessor->get('password'))->toBe('secret-value');
+        expect($reports)->not->toBeEmpty();
+    });
+
+    it('keeps v2 behaviour without a validator', function () {
+        $obj = new stdClass;
+        $obj->password = 'secret-value';
+
+        expect((new ObjectAccessor($obj))->get('password'))->toBe('secret-value');
     });
 });
