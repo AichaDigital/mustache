@@ -2,7 +2,7 @@
 
 All notable changes to `aichadigital/laravel-mustache-resolver` will be documented in this file.
 
-## [Unreleased] — 3.0.0
+## [3.0.0] - 2026-08-03
 
 Security major. The protections v2.1 introduced in `report` mode become the enforced default, and every fail-open path found while hardening them is closed. **Read [UPGRADE-3.md](UPGRADE-3.md) before updating** — it ships in the dist and covers each break with before/after, the observation procedure on 2.x, verification and rollback.
 

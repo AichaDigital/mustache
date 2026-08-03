@@ -159,7 +159,7 @@ Composer-level rollback is safe: v3 touches no storage and writes nothing. Resto
 
 2.x receives patches for **new** vulnerabilities (ones not documented as v2 limitations in the v3 spec) and for Laravel compatibility, for six months from the v3.0.0 release.
 
-- **Absolute 2.x EOL date:** _to be stamped at tag time_.
-- **Minimum severity that triggers a 2.x patch:** _to be stamped at tag time_.
+- **Absolute 2.x EOL date: 2027-02-03** (six months from the v3.0.0 tag, 2026-08-03).
+- **Minimum severity that triggers a 2.x patch: high (CVSS ≥ 7.0) — plus ANY severity when the vector is data exposure through templates**, which is this package's core threat.
 
 The four v2 limitations that v3 exists to close are permanent on 2.x and will not be patched there.

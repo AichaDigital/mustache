@@ -33,7 +33,7 @@ A framework-agnostic, fully testable, SOLID-compliant mustache template resolver
 | Package version | PHP            | Laravel        | Security default | Status              |
 |-----------------|----------------|----------------|------------------|---------------------|
 | 3.x             | 8.2, 8.3, 8.4 | 12.x, 13.x    | `enforce`        | Active development  |
-| 2.x             | 8.2, 8.3, 8.4 | 12.x, 13.x    | `report`         | New vulnerabilities + Laravel compatibility until the 2.x EOL date (see [UPGRADE-3.md](UPGRADE-3.md)) |
+| 2.x             | 8.2, 8.3, 8.4 | 12.x, 13.x    | `report`         | New vulnerabilities (high, or any severity on template data exposure) + Laravel compatibility until **2027-02-03** (see [UPGRADE-3.md](UPGRADE-3.md)) |
 | 1.x             | 8.2, 8.3, 8.4 | 10.x, 11.x, 12.x | none          | End of life         |
 
 **Upgrading from 2.x?** Read [UPGRADE-3.md](UPGRADE-3.md) first — v3 enforces by default, blocks whole-container serialization, and changes the types in `getResolvedValues()`. A config published under v2 keeps its own `mode` (you must flip it to `enforce` yourself); absent v3 keys are filled with safe defaults at runtime, with a boot warning naming them.
