@@ -166,4 +166,15 @@ describe('parser limits', function () {
 
         expect($parser->parse('{{User.name}}'))->toHaveCount(1);
     });
+
+    it('measures the length ceiling in bytes, and says bytes', function () {
+        // 'ñ' is two bytes in UTF-8: the guard is strlen(), so this 4-char
+        // template is 5 bytes and trips a 4-byte ceiling. The message used
+        // to say "characters", which understates the limit for anyone
+        // computing their ceiling from a character count.
+        $parser = new MustacheParser(maxTemplateLength: 4, maxTokens: null);
+
+        expect(fn () => $parser->parse('ñ{{a}}'))
+            ->toThrow(SecurityException::class, 'exceeds the configured maximum of 4 bytes');
+    });
 });

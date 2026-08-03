@@ -31,12 +31,19 @@ use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 final class SecurityConfigReconciler
 {
     /**
+     * `applied` carries the VALUE each absent key was filled with, keyed the
+     * same way `absent` names them. The boot warning quotes it: telling a
+     * consumer which keys are missing without telling them what is now in
+     * force leaves them to go and look up the defaults themselves, which is
+     * exactly the guesswork the warning exists to remove.
+     *
      * @param  array<string, mixed>  $security
-     * @return array{security: array<string, mixed>, absent: list<string>, legacy_allowed_models: bool}
+     * @return array{security: array<string, mixed>, absent: list<string>, applied: array<string, mixed>, legacy_allowed_models: bool}
      */
     public static function reconcile(array $security): array
     {
         $absent = [];
+        $applied = [];
         $legacyAllowedModels = array_key_exists('allowed_models', $security);
 
         if ($legacyAllowedModels && ! array_key_exists('allowed_root_models', $security)) {
@@ -49,12 +56,14 @@ final class SecurityConfigReconciler
             if (! array_key_exists($key, $security)) {
                 $security[$key] = $default;
                 $absent[] = 'security.'.$key;
+                $applied['security.'.$key] = $default;
             }
         }
 
         return [
             'security' => $security,
             'absent' => $absent,
+            'applied' => $applied,
             'legacy_allowed_models' => $legacyAllowedModels,
         ];
     }

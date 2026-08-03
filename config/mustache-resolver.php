@@ -112,7 +112,9 @@ return [
         // (nested serialization is covered by the container policy instead).
         'allowed_root_models' => [],
 
-        // Maximum nesting depth for relation chains
+        // Maximum nesting depth for relation chains. Always a number —
+        // there is no "unlimited" here; null (or an absent key) means the
+        // default below. A numeric string is accepted and cast.
         'max_depth' => 10,
 
         // Whole-container serialization (a token resolving to an array or
@@ -155,7 +157,14 @@ return [
         // Parse-time ceilings guarding resolution amplification (a template
         // with many relation paths multiplies lazy queries). Applied only when
         // mode is 'enforce' — a new throw in report mode would break the
-        // "report changes nothing" invariant. null = unlimited.
+        // "report changes nothing" invariant.
+        //
+        // max_template_length is measured in BYTES (strlen), not characters.
+        // null, an empty value (MUSTACHE_SECURITY_MAX_TOKENS= in .env) or
+        // false all mean unlimited; a numeric string coming from .env is
+        // cast, never left as a string — see MustacheServiceProvider::
+        // normalizeLimit(). A value that is neither falls back to the
+        // default and is logged.
         'limits' => [
             'max_template_length' => env('MUSTACHE_SECURITY_MAX_TEMPLATE_LENGTH', 100000),
             'max_tokens' => env('MUSTACHE_SECURITY_MAX_TOKENS', 1000),

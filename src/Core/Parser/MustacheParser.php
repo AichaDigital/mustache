@@ -22,6 +22,11 @@ final class MustacheParser implements ParserInterface
 
     public const DEFAULT_MAX_TOKENS = 1_000;
 
+    /**
+     * @param  int|null  $maxTemplateLength  Ceiling in BYTES (strlen), not
+     *                                       characters; null disables it.
+     * @param  int|null  $maxTokens  Maximum mustache tokens; null disables it.
+     */
     public function __construct(
         private readonly ?int $maxTemplateLength = self::DEFAULT_MAX_TEMPLATE_LENGTH,
         private readonly ?int $maxTokens = self::DEFAULT_MAX_TOKENS,

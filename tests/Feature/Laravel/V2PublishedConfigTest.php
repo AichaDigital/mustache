@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AichaDigital\MustacheResolver\Contracts\ParserInterface;
 use AichaDigital\MustacheResolver\Core\MustacheResolver;
+use AichaDigital\MustacheResolver\Core\Parser\MustacheParser;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Exceptions\SecurityException;
 use AichaDigital\MustacheResolver\Laravel\MustacheServiceProvider;
@@ -105,6 +106,45 @@ describe('a v2-shaped published security config', function () {
                     && $context['effective_mode'] === 'report'
                     && isset($context['report_mode']);
             });
+    });
+
+    it('enumerates the VALUES the absent keys were filled with, not just their names', function () {
+        Log::spy();
+
+        // Naming the missing keys without naming what is now in force sends
+        // the reader to the package source to find out what they are running
+        // — the exact lookup the warning exists to save them.
+        bootFreshProviderAgainst($this->app, ['mode' => 'report']);
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(function (string $message, array $context): bool {
+                $applied = $context['applied_v3_defaults'];
+
+                return $applied['security.blacklisted_patterns'] === SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS
+                    && $applied['security.blacklisted_attributes'] === SecurityValidator::DEFAULT_BLACKLISTED_ATTRIBUTES
+                    && $applied['security.limits'] === [
+                        'max_template_length' => MustacheParser::DEFAULT_MAX_TEMPLATE_LENGTH,
+                        'max_tokens' => MustacheParser::DEFAULT_MAX_TOKENS,
+                    ]
+                    // 'mode' was PRESENT, so it is not among the applied
+                    // defaults — the two lists must stay in step.
+                    && ! array_key_exists('security.mode', $applied)
+                    && array_keys($applied) === $context['absent_keys_filled_with_v3_defaults'];
+            });
+    });
+
+    it('tells the reader exactly what to edit', function () {
+        Log::spy();
+
+        // The action line is the only part of the warning that is actionable
+        // rather than descriptive, and nothing pinned it: it could have been
+        // dropped or reworded into uselessness without a single test moving.
+        bootFreshProviderAgainst($this->app, ['mode' => 'report']);
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(fn (string $message, array $context): bool => $context['action'] === 'Add the listed keys to your published mustache-resolver.php config (or re-publish it), then review UPGRADE-3.md.');
     });
 });
 

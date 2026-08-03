@@ -22,6 +22,9 @@ class MustacheServiceProvider extends ServiceProvider
     /** @var list<string> */
     private array $absentSecurityKeys = [];
 
+    /** @var array<string, mixed> */
+    private array $appliedSecurityDefaults = [];
+
     private bool $legacyAllowedModelsDetected = false;
 
     /**
@@ -75,6 +78,7 @@ class MustacheServiceProvider extends ServiceProvider
 
         $config->set('mustache-resolver.security', $result['security']);
         $this->absentSecurityKeys = $result['absent'];
+        $this->appliedSecurityDefaults = $result['applied'];
         $this->legacyAllowedModelsDetected = $result['legacy_allowed_models'];
     }
 
@@ -84,6 +88,11 @@ class MustacheServiceProvider extends ServiceProvider
      * required, and a link to UPGRADE-3.md. It must NOT assert which file
      * the configuration came from — under cached config that cannot be
      * verified (spec §11.1).
+     *
+     * "What defaults now apply" means the VALUES, not just the key names:
+     * `applied_v3_defaults` carries key => value so the reader can see that
+     * mode is now enforce and which patterns are live without leaving the
+     * log line to go and read the package source.
      */
     protected function warnAboutIncompleteSecurityConfig(): void
     {
@@ -92,6 +101,7 @@ class MustacheServiceProvider extends ServiceProvider
 
         $context = [
             'absent_keys_filled_with_v3_defaults' => $this->absentSecurityKeys,
+            'applied_v3_defaults' => $this->appliedSecurityDefaults,
             'effective_mode' => $mode,
             'action' => 'Add the listed keys to your published mustache-resolver.php config (or re-publish it), then review UPGRADE-3.md.',
         ];
@@ -134,27 +144,105 @@ class MustacheServiceProvider extends ServiceProvider
     protected function registerParser(): void
     {
         $this->app->singleton(ParserInterface::class, function ($app) {
-            /** @var array<string, mixed> $security */
-            $security = $app['config']['mustache-resolver']['security'] ?? [];
+            // The effective mode is resolved ONCE, by the validator, and read
+            // back from it here. Re-deriving it from raw config was the split
+            // that let an invalid mode (a typo) leave the parser unlimited
+            // while the validator, reading the same value, failed closed to
+            // enforce — two divergent answers to one question.
+            $mode = $app->make(SecurityValidator::class)->getMode();
 
             // Limits throw; report must not change behaviour vs v2.1, so only
             // enforce wires them. off keeps the explicit "no checks" promise.
-            if (($security['mode'] ?? SecurityValidator::MODE_ENFORCE) !== SecurityValidator::MODE_ENFORCE) {
+            if ($mode !== SecurityValidator::MODE_ENFORCE) {
                 return new MustacheParser(maxTemplateLength: null, maxTokens: null);
             }
 
             /** @var array<string, mixed> $limits */
-            $limits = $security['limits'] ?? [];
+            $limits = $app['config']['mustache-resolver']['security']['limits'] ?? [];
 
             return new MustacheParser(
-                maxTemplateLength: array_key_exists('max_template_length', $limits)
-                    ? $limits['max_template_length']
-                    : MustacheParser::DEFAULT_MAX_TEMPLATE_LENGTH,
-                maxTokens: array_key_exists('max_tokens', $limits)
-                    ? $limits['max_tokens']
-                    : MustacheParser::DEFAULT_MAX_TOKENS,
+                maxTemplateLength: self::normalizeLimit(
+                    $limits, 'max_template_length', MustacheParser::DEFAULT_MAX_TEMPLATE_LENGTH
+                ),
+                maxTokens: self::normalizeLimit(
+                    $limits, 'max_tokens', MustacheParser::DEFAULT_MAX_TOKENS
+                ),
             );
         });
+    }
+
+    /**
+     * Normalise a parse-time ceiling into what MustacheParser accepts (?int).
+     *
+     * Both ceilings are published as env() reads, and env() returns STRINGS.
+     * Passing one straight into the parser's ?int constructor under
+     * declare(strict_types=1) is a TypeError at container-resolution time —
+     * setting either documented variable in .env crashed the application
+     * rather than tightening a limit.
+     *
+     * Absent  → the v3 default (the key was never configured).
+     * null, '' or false → unlimited. Empty is what `KEY=` in a .env yields
+     *   and false what `KEY=false` yields; both read as "no ceiling", never
+     *   as the 0 an unguarded (int) cast would have produced — 0 would
+     *   reject every template, turning a disable into a total outage.
+     * numeric → its integer value (an explicit 0 is left alone: it is a
+     *   deliberate value, not the artefact of a cast).
+     * anything else → the v3 default, warned. Failing closed on a value
+     *   nobody can interpret matches how an invalid security.mode is handled.
+     *
+     * @param  array<string, mixed>  $limits
+     */
+    private static function normalizeLimit(array $limits, string $key, int $default): ?int
+    {
+        if (! array_key_exists($key, $limits)) {
+            return $default;
+        }
+
+        $value = $limits[$key];
+
+        if ($value === null || $value === '' || $value === false) {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        Log::warning('mustache-resolver: invalid security.limits value, falling back to the default', [
+            'key' => 'security.limits.'.$key,
+            'type' => get_debug_type($value),
+            'default' => $default,
+        ]);
+
+        return $default;
+    }
+
+    /**
+     * Normalise max_depth into the int SecurityValidator requires.
+     *
+     * Same class of defect as normalizeLimit(): the value went into an int
+     * parameter uncast, so a string (a consumer wiring it to env(), the way
+     * the limits are published) was a TypeError. Unlike the ceilings there
+     * is no "unlimited" here — max_depth is always a number — so an absent
+     * key and an explicit null both mean the default, which is what the ??
+     * this replaces already did and what the reconciler records as absent.
+     */
+    private static function normalizeDepth(mixed $value, int $default = 10): int
+    {
+        if ($value === null) {
+            return $default;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        Log::warning('mustache-resolver: invalid security.max_depth, falling back to the default', [
+            'type' => get_debug_type($value),
+            'default' => $default,
+        ]);
+
+        return $default;
     }
 
     /**
@@ -190,14 +278,18 @@ class MustacheServiceProvider extends ServiceProvider
     protected function registerSecurity(): void
     {
         $this->app->singleton(SecurityValidator::class, function ($app) {
-            /** @var array{allowed_root_models?: array<string>, blacklisted_attributes?: array<string>, blacklisted_patterns?: array<string>, max_depth?: int, mode?: string} $config */
+            /** @var array{allowed_root_models?: array<string>, blacklisted_attributes?: array<string>, blacklisted_patterns?: array<string>, max_depth?: mixed, mode?: mixed} $config */
             $config = $app['config']['mustache-resolver']['security'] ?? [];
 
+            // THE effective-mode resolution for the whole package: the parser
+            // reads it back off this instance rather than repeating it.
             $mode = $config['mode'] ?? SecurityValidator::MODE_ENFORCE;
 
             // An invalid mode fails closed (enforce) rather than leaving the app unprotected
             if (! in_array($mode, [SecurityValidator::MODE_OFF, SecurityValidator::MODE_REPORT, SecurityValidator::MODE_ENFORCE], true)) {
-                Log::warning('mustache-resolver: invalid security.mode, falling back to "enforce"', ['mode' => $mode]);
+                Log::warning('mustache-resolver: invalid security.mode, falling back to "enforce"', [
+                    'mode' => is_scalar($mode) ? $mode : get_debug_type($mode),
+                ]);
                 $mode = SecurityValidator::MODE_ENFORCE;
             }
 
@@ -227,7 +319,7 @@ class MustacheServiceProvider extends ServiceProvider
                 blacklistedPatterns: array_key_exists('blacklisted_patterns', $config)
                     ? $config['blacklisted_patterns']
                     : SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS,
-                maxDepth: $config['max_depth'] ?? 10,
+                maxDepth: self::normalizeDepth($config['max_depth'] ?? null),
                 mode: $mode,
                 reporter: function (string $message, array $context = []) use (&$reported) {
                     $key = $message.'|'.($context['path'] ?? $context['model'] ?? '');

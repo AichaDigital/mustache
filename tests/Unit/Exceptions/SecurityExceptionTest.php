@@ -29,4 +29,18 @@ describe('SecurityException', function () {
 
         expect($exception->getMessage())->toBe('Expression contains dangerous patterns: __proto__');
     });
+
+    it('states the template-length ceiling in bytes, matching the strlen() that guards it', function () {
+        $exception = SecurityException::templateTooLong(120, 100);
+
+        expect($exception->getMessage())
+            ->toBe('Template length 120 exceeds the configured maximum of 100 bytes');
+    });
+
+    it('creates tooManyTokens exception', function () {
+        $exception = SecurityException::tooManyTokens(5, 2);
+
+        expect($exception->getMessage())
+            ->toBe('Template contains 5 mustache tokens, exceeding the configured maximum of 2');
+    });
 });

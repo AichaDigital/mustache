@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use AichaDigital\MustacheResolver\Contracts\ParserInterface;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
 use AichaDigital\MustacheResolver\Exceptions\SecurityException;
@@ -474,4 +475,160 @@ describe('Security wiring through the ServiceProvider', function () {
 
         Mustache::translate('{{User.name}} {{User.email}} {{User.id}}', $this->user);
     })->throws(SecurityException::class);
+
+    it('enforces the limits under an INVALID mode, not just the validator', function () {
+        config()->set('mustache-resolver.security.mode', 'reprot'); // typo
+        config()->set('mustache-resolver.security.limits.max_tokens', 2);
+
+        // The validator has always failed closed to enforce on a typo. The
+        // parser used to re-derive the mode from raw config instead of
+        // reading it back off the validator, so "not enforce" left it
+        // unlimited: one invalid value produced two divergent policies, and
+        // the advertised fail-closed behaviour was only half true.
+        expect(app(SecurityValidator::class)->getMode())->toBe(SecurityValidator::MODE_ENFORCE);
+
+        Mustache::translate('{{User.name}} {{User.email}} {{User.id}}', $this->user);
+    })->throws(SecurityException::class);
+
+    it('reports a blacklisted PATTERN hit without blocking it in report mode', function () {
+        config()->set('mustache-resolver.security.mode', 'report');
+        config()->set('mustache-resolver.security.blacklisted_patterns', ['*_token']);
+        config()->set('mustache-resolver.security.blacklisted_attributes', []);
+        Log::spy();
+
+        // The exact-name blacklist had a report-mode regression; the PATTERN
+        // list did not, and the two are separate branches of
+        // isAttributeBlacklisted().
+        $data = ['user' => ['auth_token' => 'tok_123']];
+        $result = Mustache::translate('Token: {{user.auth_token}}', $data);
+
+        expect($result->getTranslated())->toBe('Token: tok_123');
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'would be blocked in enforce mode')
+                && $context['path'] === 'user.auth_token'
+                && $context['blacklisted_segments'] === ['auth_token']);
+    });
+
+    it('matches a blacklisted pattern configured in UPPERCASE', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.blacklisted_patterns', ['*_TOKEN']);
+        config()->set('mustache-resolver.security.blacklisted_attributes', []);
+
+        // isAttributeBlacklisted() lowercases BOTH sides before Str::is().
+        // Nothing pinned that, so a case-sensitivity regression in the
+        // pattern branch would have silently unblocked every consumer who
+        // wrote their patterns in caps.
+        $data = ['user' => ['auth_token' => 'tok_123', 'name' => 'John']];
+        $result = Mustache::translate('Token: {{user.auth_token}} / Name: {{user.name}}', $data);
+
+        expect($result->getTranslated())->toBe('Token:  / Name: John');
+    });
+
+    it('accepts a max_depth arriving as a numeric string', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.max_depth', '1');
+
+        // SecurityValidator::__construct() takes int $maxDepth and this file
+        // declares strict_types, so an unnormalised string was a TypeError at
+        // container-resolution time — the same defect class as the limits.
+        expect(app(SecurityValidator::class)->getMaxDepth())->toBe(1);
+
+        $result = Mustache::translate('Name: {{User.name}} / Dept: {{User.department.name}}', $this->user);
+
+        expect($result->getTranslated())->toBe('Name: John Doe / Dept: ');
+    });
+
+    it('falls back to the default max_depth when the value is uninterpretable', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.max_depth', ['nonsense']);
+        Log::spy();
+
+        expect(app(SecurityValidator::class)->getMaxDepth())->toBe(10);
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'invalid security.max_depth'));
+    });
+
+    it('treats an explicit null max_depth as absent, not as zero', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.max_depth', null);
+
+        // max_depth has no "unlimited": null means the default. A bare (int)
+        // cast would have produced 0 and blocked every single path.
+        expect(app(SecurityValidator::class)->getMaxDepth())->toBe(10);
+
+        $result = Mustache::translate('Name: {{User.name}}', $this->user);
+        expect($result->getTranslated())->toBe('Name: John Doe');
+    });
+});
+
+describe('parse-time limits arriving as configuration values', function () {
+    it('accepts a numeric-string ceiling instead of crashing the container', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        // This is exactly what env('MUSTACHE_SECURITY_MAX_TOKENS') yields
+        // once the variable is set in a .env file: a STRING. Passing it
+        // straight into MustacheParser's ?int constructor under
+        // declare(strict_types=1) was a TypeError, so setting either
+        // documented variable took the application down.
+        config()->set('mustache-resolver.security.limits.max_tokens', '2');
+
+        expect(fn () => app(ParserInterface::class)->parse('{{a}} {{b}} {{c}}'))
+            ->toThrow(SecurityException::class);
+    });
+
+    it('accepts a numeric-string template-length ceiling', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.limits.max_template_length', '10');
+
+        expect(fn () => app(ParserInterface::class)->parse('{{a_long_enough_token}}'))
+            ->toThrow(SecurityException::class);
+    });
+
+    it('reads an empty ceiling as unlimited, never as zero', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        // `MUSTACHE_SECURITY_MAX_TOKENS=` in a .env yields ''. A bare (int)
+        // cast would make that 0 and reject every template — turning a
+        // "disable this limit" into a total outage.
+        config()->set('mustache-resolver.security.limits.max_tokens', '');
+        config()->set('mustache-resolver.security.limits.max_template_length', null);
+
+        expect(app(ParserInterface::class)->parse('{{a}} {{b}} {{c}}'))->toHaveCount(3);
+    });
+
+    it('reads a false ceiling as unlimited', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        // `MUSTACHE_SECURITY_MAX_TOKENS=false` in a .env yields bool false.
+        config()->set('mustache-resolver.security.limits.max_tokens', false);
+
+        expect(app(ParserInterface::class)->parse('{{a}} {{b}} {{c}}'))->toHaveCount(3);
+    });
+
+    it('falls back to the default when a ceiling is uninterpretable, and says so', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.limits.max_tokens', 'not-a-number');
+        Log::spy();
+
+        expect(app(ParserInterface::class)->parse('{{a}} {{b}} {{c}}'))->toHaveCount(3);
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []) => str_contains($message, 'invalid security.limits value')
+                && $context['key'] === 'security.limits.max_tokens');
+    });
+});
+
+it('a ceiling set through the real env var reaches the parser as an int', function () {
+    // End to end through the SHIPPED config file, whose limits are env()
+    // reads, with the environment variable genuinely set — the string that
+    // crashed the container is produced here by env() itself, not by hand.
+    $_SERVER['MUSTACHE_SECURITY_MAX_TOKENS'] = '2';
+
+    try {
+        $this->refreshApplication();
+
+        expect(config('mustache-resolver.security.limits.max_tokens'))->toBe('2');
+
+        expect(fn () => app(ParserInterface::class)->parse('{{a}} {{b}} {{c}}'))
+            ->toThrow(SecurityException::class);
+    } finally {
+        unset($_SERVER['MUSTACHE_SECURITY_MAX_TOKENS']);
+    }
 });

@@ -33,6 +33,17 @@ final readonly class OutputSanitizer
         private bool $allowContainerSerialization = false,
     ) {}
 
+    /**
+     * The policy this barrier applies, so a collaborator built alongside it
+     * (Core\Compound\UseVariableResolver) derives its own mode-dependent
+     * behaviour from the SAME validator instead of reading configuration a
+     * second time and drifting from it.
+     */
+    public function getValidator(): ?SecurityValidator
+    {
+        return $this->validator;
+    }
+
     public function sanitize(mixed $raw, TokenInterface $token): SanitizedValue
     {
         if ($this->validator === null || $this->validator->getMode() === SecurityValidator::MODE_OFF) {

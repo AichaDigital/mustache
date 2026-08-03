@@ -16,6 +16,8 @@ use AichaDigital\MustacheResolver\Core\Pipeline\ResolutionPipeline;
 use AichaDigital\MustacheResolver\Core\Result\TranslationResult;
 use AichaDigital\MustacheResolver\Core\Security\OutputSanitizer;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
+use AichaDigital\MustacheResolver\Core\Security\ValidatingAccessor;
+use AichaDigital\MustacheResolver\Core\Security\ValidatingContext;
 use AichaDigital\MustacheResolver\Exceptions\ResolutionException;
 use Illuminate\Database\Eloquent\Model;
 
@@ -144,13 +146,22 @@ final class MustacheResolver
      */
     private function createContext(mixed $data, array $variables, bool $strict): ContextInterface
     {
+        // A context or an accessor supplied by the consumer arrives already
+        // built, so the validator cannot be injected the way it is for the
+        // branches below — it is applied by decoration instead. Both are
+        // wrapped: the accessor alone would leave ContextInterface::get()
+        // and has(), which are access points of their own, unguarded.
+        // strict is NOT overridden for a consumer's own context: that has
+        // always been the context's own decision, and this fix is about
+        // security, not about taking that over.
         if ($data instanceof ContextInterface) {
-            return $data;
+            return ValidatingContext::wrap($data, $this->securityValidator);
         }
 
         if ($data instanceof DataAccessorInterface) {
-            return ResolutionContext::create($data)
-                ->withStrict($strict);
+            return ResolutionContext::create(
+                ValidatingAccessor::wrap($data, $this->securityValidator)
+            )->withStrict($strict);
         }
 
         if ($data instanceof Model) {
@@ -159,7 +170,7 @@ final class MustacheResolver
         }
 
         if (is_array($data)) {
-            $this->warnRootWhitelistInapplicable($data);
+            $this->securityValidator->validateRootDatum($data);
 
             return ResolutionContext::fromArray($data, $this->securityValidator)
                 ->withStrict($strict);
@@ -173,30 +184,9 @@ final class MustacheResolver
         // the ONLY barrier protecting a plain-object data source — the
         // sanitizer cannot reconstruct a path DYNAMIC only discovers at
         // runtime, and was never meant to.
-        $this->warnRootWhitelistInapplicable($data);
+        $this->securityValidator->validateRootDatum($data);
 
         return ResolutionContext::fromArray(['model' => $data], $this->securityValidator)
             ->withStrict($strict);
-    }
-
-    /**
-     * A class whitelist cannot be applied when the root datum is not a model
-     * (spec §11.4): warn so a consumer who populated allowed_root_models and
-     * feeds arrays does not read a guarantee into it that does not exist.
-     */
-    private function warnRootWhitelistInapplicable(mixed $data): void
-    {
-        if ($this->securityValidator->getMode() === SecurityValidator::MODE_OFF) {
-            return;
-        }
-
-        if ($this->securityValidator->getAllowedRootModels() === []) {
-            return;
-        }
-
-        $this->securityValidator->reportViolation(
-            'mustache-resolver: allowed_root_models cannot be applied, the root datum is not a model',
-            ['type' => get_debug_type($data)],
-        );
     }
 }

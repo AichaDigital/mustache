@@ -24,9 +24,19 @@ class SecurityException extends MustacheException
         return new self("Expression contains dangerous patterns: {$expression}");
     }
 
+    /**
+     * The ceiling is measured in BYTES, and the message says so.
+     *
+     * MustacheParser guards this with strlen(), which counts bytes; saying
+     * "characters" made the limit look encoding-dependent and understated it
+     * for any multi-byte template — a consumer computing their ceiling from
+     * a character count would set it too high. Bytes is also the measure
+     * that matches what the limit exists to bound (memory and parse work),
+     * and it needs no mbstring.
+     */
     public static function templateTooLong(int $length, int $max): self
     {
-        return new self("Template length {$length} exceeds the configured maximum of {$max} characters");
+        return new self("Template length {$length} exceeds the configured maximum of {$max} bytes");
     }
 
     public static function tooManyTokens(int $count, int $max): self

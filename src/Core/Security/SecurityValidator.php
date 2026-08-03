@@ -6,6 +6,7 @@ namespace AichaDigital\MustacheResolver\Core\Security;
 
 use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
 use Closure;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 /**
@@ -118,6 +119,36 @@ final readonly class SecurityValidator
         }
 
         throw new ModelNotAllowedException($modelClass, $this->allowedRootModels);
+    }
+
+    /**
+     * Apply the root-datum class whitelist to whatever a data source exposes.
+     *
+     * Single home for the rule, shared by MustacheResolver::createContext()
+     * and ValidatingAccessor: a Model root goes through validateModel(); any
+     * other root cannot satisfy a CLASS whitelist at all (spec §11.4), so a
+     * consumer who populated allowed_root_models and then feeds an array,
+     * an object or a non-Eloquent accessor is told the guarantee they may be
+     * reading into it does not exist, instead of being silently reassured.
+     *
+     * @throws ModelNotAllowedException
+     */
+    public function validateRootDatum(mixed $datum): void
+    {
+        if ($datum instanceof Model) {
+            $this->validateModel($datum::class);
+
+            return;
+        }
+
+        if ($this->mode === self::MODE_OFF || $this->allowedRootModels === []) {
+            return;
+        }
+
+        $this->report(
+            'mustache-resolver: allowed_root_models cannot be applied, the root datum is not a model',
+            ['type' => get_debug_type($datum)],
+        );
     }
 
     /**

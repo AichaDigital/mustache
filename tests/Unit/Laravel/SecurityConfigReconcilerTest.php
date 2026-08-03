@@ -24,6 +24,26 @@ describe('SecurityConfigReconciler', function () {
         expect($result['legacy_allowed_models'])->toBeFalse();
     });
 
+    it('reports the value each absent key was filled with, keyed as absent names it', function () {
+        $result = SecurityConfigReconciler::reconcile(['mode' => 'report']);
+
+        // The boot warning quotes this map, so what it carries IS what a
+        // consumer reads as "the policy now in force".
+        expect($result['applied'])->toHaveKey('security.blacklisted_patterns');
+        expect($result['applied']['security.blacklisted_patterns'])
+            ->toBe(SecurityValidator::DEFAULT_BLACKLISTED_PATTERNS);
+        expect($result['applied']['security.max_depth'])->toBe(10);
+        expect($result['applied'])->not->toHaveKey('security.mode');
+        expect(array_keys($result['applied']))->toBe($result['absent']);
+    });
+
+    it('applies nothing when nothing is absent', function () {
+        /** @var array{security: array<string, mixed>} $file */
+        $file = require __DIR__.'/../../../config/mustache-resolver.php';
+
+        expect(SecurityConfigReconciler::reconcile($file['security'])['applied'])->toBe([]);
+    });
+
     it('never overrides a present mode, even report', function () {
         $result = SecurityConfigReconciler::reconcile(['mode' => 'report']);
 
