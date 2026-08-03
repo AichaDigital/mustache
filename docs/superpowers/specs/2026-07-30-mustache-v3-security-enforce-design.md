@@ -2,7 +2,7 @@
 
 - **Ticket:** AID-733 (continues AID-632, closed)
 - **Date:** 2026-07-30
-- **Status:** under revision — sections 1-10 superseded in part by the amendment in section 11. Not ready to become an implementation plan until the ticket is reconciled (see 11.9)
+- **Status:** implemented and shipped as **v3.0.0** (tag `v3.0.0`, commit `b19aff1`, 2026-08-03) — sections 1-10 as amended by section 11 and by the dated in-place amendment to 11.5 (Stringable trust, 2026-08-03). The two decisions 11.7 left open were taken by the owner on 2026-08-03: absolute 2.x EOL 2027-02-03; minimum 2.x patch severity high (CVSS ≥ 7.0), plus any severity when the vector is data exposure through templates. Governance record: `approvals/majors/mustache-3.md` in the central workspace
 - **Baseline:** v2.1.0 (tag `v2.1.0`, commit `2a3db11`, published on Packagist with `dist`)
 
 ## 1. Context
