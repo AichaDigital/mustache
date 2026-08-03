@@ -59,10 +59,12 @@ final class UseVariableResolver
      * Limits are an enforce-only control, exactly as the service provider
      * wires them for the main parser.
      *
-     * The class defaults, not the consumer's configured `security.limits`,
-     * are what apply here: the optional $parser constructor argument is the
-     * seam for configured ceilings, and no public compound entry point
-     * passes one yet (tracked as a phase-3 residual on the ticket).
+     * The optional $parser constructor argument is the seam for CONFIGURED
+     * ceilings: CompoundResolver forwards its own, and the Laravel provider
+     * binds CompoundResolver passing the same ParserInterface the main path
+     * uses — so `security.limits` governs both entry points. This
+     * mode-derived fallback applies only when nothing was injected
+     * (standalone construction without a parser).
      */
     private static function parserFor(SecurityValidator $validator): MustacheParser
     {

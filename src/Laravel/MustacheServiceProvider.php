@@ -8,12 +8,14 @@ use AichaDigital\MustacheResolver\Cache\ArrayCache;
 use AichaDigital\MustacheResolver\Cache\NullCache;
 use AichaDigital\MustacheResolver\Contracts\CacheInterface;
 use AichaDigital\MustacheResolver\Contracts\ParserInterface;
+use AichaDigital\MustacheResolver\Core\Compound\CompoundResolver;
 use AichaDigital\MustacheResolver\Core\MustacheResolver;
 use AichaDigital\MustacheResolver\Core\Parser\MustacheParser;
 use AichaDigital\MustacheResolver\Core\Pipeline\PipelineBuilder;
 use AichaDigital\MustacheResolver\Core\Pipeline\ResolutionPipeline;
 use AichaDigital\MustacheResolver\Core\Security\OutputSanitizer;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 
@@ -44,6 +46,7 @@ class MustacheServiceProvider extends ServiceProvider
         $this->registerPipeline();
         $this->registerSecurity();
         $this->registerResolver();
+        $this->registerCompoundResolver();
     }
 
     /**
@@ -93,11 +96,16 @@ class MustacheServiceProvider extends ServiceProvider
      * `applied_v3_defaults` carries key => value so the reader can see that
      * mode is now enforce and which patterns are live without leaving the
      * log line to go and read the package source.
+     *
+     * `effective_mode` comes from the BOUND VALIDATOR, not from raw config:
+     * the validator is where the mode is resolved once for the whole
+     * package (invalid values fail closed to enforce there), and this line
+     * quoting the raw value back would tell a consumer with a typo'd mode
+     * that the typo is in force — the opposite of the truth.
      */
     protected function warnAboutIncompleteSecurityConfig(): void
     {
-        /** @var string $mode */
-        $mode = $this->app->make('config')->get('mustache-resolver.security.mode', SecurityValidator::MODE_ENFORCE);
+        $mode = $this->app->make(SecurityValidator::class)->getMode();
 
         $context = [
             'absent_keys_filled_with_v3_defaults' => $this->absentSecurityKeys,
@@ -351,13 +359,44 @@ class MustacheServiceProvider extends ServiceProvider
                 $app->make(ResolutionPipeline::class),
                 $app->make(CacheInterface::class),
                 $app->make(SecurityValidator::class),
-                new OutputSanitizer(
-                    $app->make(SecurityValidator::class),
-                    (bool) ($app['config']['mustache-resolver']['security']['allow_container_serialization'] ?? false),
-                ),
+                self::buildSanitizer($app),
             );
         });
 
         $this->app->alias(MustacheResolver::class, 'mustache');
+    }
+
+    /**
+     * Register the compound resolver.
+     *
+     * Without this binding an injected CompoundResolver was auto-wired: its
+     * sanitizer fell back to the default policy (ignoring the consumer's
+     * allow_container_serialization) and its USE-expression parser ran on
+     * the CLASS default ceilings — the consumer's `security.limits` never
+     * reached the compound entry, in either direction. Binding it with the
+     * SAME validator, flag and parser the main path uses keeps one effective
+     * policy across both public entry points.
+     */
+    protected function registerCompoundResolver(): void
+    {
+        $this->app->singleton(CompoundResolver::class, function ($app) {
+            return new CompoundResolver(
+                $app->make(ResolutionPipeline::class),
+                self::buildSanitizer($app),
+                $app->make(ParserInterface::class),
+            );
+        });
+    }
+
+    /**
+     * The output sanitizer both entry points share the construction of:
+     * the bound validator plus the consumer's container-serialization flag.
+     */
+    private static function buildSanitizer(Application $app): OutputSanitizer
+    {
+        return new OutputSanitizer(
+            $app->make(SecurityValidator::class),
+            (bool) $app->make('config')->get('mustache-resolver.security.allow_container_serialization', false),
+        );
     }
 }

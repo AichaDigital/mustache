@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use AichaDigital\MustacheResolver\Contracts\ParserInterface;
+use AichaDigital\MustacheResolver\Core\Compound\CompoundResolver;
+use AichaDigital\MustacheResolver\Core\Context\ResolutionContext;
 use AichaDigital\MustacheResolver\Core\Security\SecurityValidator;
 use AichaDigital\MustacheResolver\Exceptions\ModelNotAllowedException;
 use AichaDigital\MustacheResolver\Exceptions\SecurityException;
+use AichaDigital\MustacheResolver\Exceptions\VariableNotResolvedException;
 use AichaDigital\MustacheResolver\Laravel\Facades\Mustache;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -631,4 +634,36 @@ it('a ceiling set through the real env var reaches the parser as an int', functi
     } finally {
         unset($_SERVER['MUSTACHE_SECURITY_MAX_TOKENS']);
     }
+});
+
+describe('configured limits reach the container-bound compound resolver', function () {
+    // The compound entry used to be unreachable by `security.limits`: the
+    // provider bound neither CompoundResolver nor a parser for it, so an
+    // auto-wired instance always ran on the CLASS defaults and the docblock
+    // promise "inject your own parser" had no public consumer. The provider
+    // now binds CompoundResolver with the SAME parser the main path uses.
+    it('applies the configured template-length ceiling to a USE expression in enforce', function () {
+        config()->set('mustache-resolver.security.mode', 'enforce');
+        config()->set('mustache-resolver.security.limits.max_template_length', 50);
+
+        $compound = app(CompoundResolver::class);
+        $template = 'USE {x} => {{Foo.'.str_repeat('a', 100).'}} && v={x}';
+
+        expect(fn () => $compound->resolve($template, ResolutionContext::fromArray(['name' => 'ok'])))
+            ->toThrow(SecurityException::class);
+    });
+
+    it('keeps the compound parser unlimited in report mode, ceilings configured or not', function () {
+        config()->set('mustache-resolver.security.mode', 'report');
+        config()->set('mustache-resolver.security.limits.max_template_length', 50);
+
+        $compound = app(CompoundResolver::class);
+        $template = 'USE {x} => {{Foo.'.str_repeat('a', 100).'}} && v={x}';
+
+        // The over-length expression parses (no SecurityException — limits
+        // are enforce-only); the failure is the ordinary unresolvable one,
+        // which doubles as the reachability guard for the test above.
+        expect(fn () => $compound->resolve($template, ResolutionContext::fromArray(['name' => 'ok'])))
+            ->toThrow(VariableNotResolvedException::class);
+    });
 });

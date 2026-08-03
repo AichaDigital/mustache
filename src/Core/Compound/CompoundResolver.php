@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AichaDigital\MustacheResolver\Core\Compound;
 
 use AichaDigital\MustacheResolver\Contracts\ContextInterface;
+use AichaDigital\MustacheResolver\Contracts\ParserInterface;
 use AichaDigital\MustacheResolver\Core\Pipeline\ResolutionPipeline;
 use AichaDigital\MustacheResolver\Core\Security\OutputSanitizer;
 use AichaDigital\MustacheResolver\Exceptions\ConditionNotMetException;
@@ -29,12 +30,21 @@ final class CompoundResolver
 
     private LocalVariableReplacer $replacer;
 
+    /**
+     * $mustacheParser is the seam for CONFIGURED parse ceilings: without it
+     * the USE-expression parser runs on UseVariableResolver's class
+     * defaults, so a consumer's `security.limits` never reached the
+     * compound entry. The Laravel provider binds this class passing the
+     * same ParserInterface the main path uses; standalone callers may pass
+     * their own or accept the mode-derived defaults.
+     */
     public function __construct(
         private readonly ResolutionPipeline $pipeline,
         ?OutputSanitizer $sanitizer = null,
+        ?ParserInterface $mustacheParser = null,
     ) {
         $this->parser = new CompoundExpressionParser;
-        $this->variableResolver = new UseVariableResolver($pipeline, $sanitizer);
+        $this->variableResolver = new UseVariableResolver($pipeline, $sanitizer, $mustacheParser);
         $this->replacer = new LocalVariableReplacer;
     }
 

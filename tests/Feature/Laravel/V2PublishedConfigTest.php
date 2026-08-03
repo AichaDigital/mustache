@@ -134,6 +134,19 @@ describe('a v2-shaped published security config', function () {
             });
     });
 
+    it('reports the EFFECTIVE mode when the configured one is invalid', function () {
+        Log::spy();
+
+        // A typo'd mode fails closed to enforce in the validator; the boot
+        // warning must say what is actually IN FORCE, not echo the raw
+        // config value back — a reader seeing effective_mode: 'reprot'
+        // concludes their typo is running, which is the opposite of true.
+        bootFreshProviderAgainst($this->app, ['mode' => 'reprot']);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []): bool => ($context['effective_mode'] ?? null) === SecurityValidator::MODE_ENFORCE);
+    });
+
     it('tells the reader exactly what to edit', function () {
         Log::spy();
 

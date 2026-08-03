@@ -164,7 +164,9 @@ return [
         // false all mean unlimited; a numeric string coming from .env is
         // cast, never left as a string — see MustacheServiceProvider::
         // normalizeLimit(). A value that is neither falls back to the
-        // default and is logged.
+        // default and is logged. An explicit 0 means literally zero — in
+        // enforce mode it rejects EVERY template. It is NOT the "disable"
+        // convention some tools use; to lift a ceiling use null or empty.
         'limits' => [
             'max_template_length' => env('MUSTACHE_SECURITY_MAX_TEMPLATE_LENGTH', 100000),
             'max_tokens' => env('MUSTACHE_SECURITY_MAX_TOKENS', 1000),
