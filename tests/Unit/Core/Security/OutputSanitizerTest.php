@@ -49,13 +49,15 @@ describe('OutputSanitizer → scalars', function () {
         expect($sanitizer->sanitize(false, sanitizerTestToken('User.active'))->text)->toBe('false');
     });
 
-    it('passes everything through untouched with no validator', function () {
+    it('applies the default policy when constructed without a validator (§11.2)', function () {
+        // Reading a missing validator as OFF made `new OutputSanitizer()`
+        // an opt-out nobody asked for — the pre-tag gate's fail-open #3.
         $sanitizer = new OutputSanitizer;
 
         $result = $sanitizer->sanitize(['a' => 1], sanitizerTestToken('User.meta'));
 
-        expect($result->value)->toBe(['a' => 1]);
-        expect($result->blocked)->toBeFalse();
+        expect($result->blocked)->toBeTrue();
+        expect($result->value)->toBeNull();
     });
 });
 
@@ -176,8 +178,33 @@ describe('OutputSanitizer → classification precedence', function () {
         expect($result->value)->toBe($result->text);
     });
 
-    it('normalises a Stringable JsonSerializable to a string rather than blocking it', function () {
+    it('treats an UNMARKED Stringable JsonSerializable as a container: __toString() is not trust', function () {
+        // The pre-tag gate's fail-open #2: any class with __toString() used
+        // to classify as atomic and could serialise itself past the whole
+        // container policy. Atomicity is granted by interface now —
+        // DateTimeInterface or SafeForTemplateSerialization — never by the
+        // mere ability to become a string.
         $money = new class implements JsonSerializable, Stringable
+        {
+            public function __toString(): string
+            {
+                return '10.00 EUR';
+            }
+
+            public function jsonSerialize(): array
+            {
+                return ['amount' => 1000, 'currency' => 'EUR'];
+            }
+        };
+
+        $result = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE)))
+            ->sanitize($money, sanitizerTestToken('User.balance'));
+
+        expect($result->blocked)->toBeTrue();
+    });
+
+    it('normalises that same value object to a string once it is marked SafeForTemplateSerialization', function () {
+        $money = new class implements JsonSerializable, SafeForTemplateSerialization, Stringable
         {
             public function __toString(): string
             {
@@ -279,15 +306,18 @@ describe('OutputSanitizer → atomic object mode gating (report changes nothing)
         );
     });
 
-    it('normalises Stringable elements in a projection only in enforce mode, matching the atomic-object rule', function () {
-        $label = new class implements Stringable
+    it('normalises trusted Stringable elements in a projection only in enforce mode, matching the atomic-object rule', function () {
+        // Marked SafeForTemplateSerialization: an UNMARKED Stringable is a
+        // container since the provenance/trust fixes (its __toString() is
+        // opaque) and would send the whole list to the container gate.
+        $label = new class implements SafeForTemplateSerialization, Stringable
         {
             public function __toString(): string
             {
                 return 'alpha';
             }
         };
-        $token = sanitizerTestToken('User.posts.label', TokenType::COLLECTION);
+        $token = sanitizerTestToken('User.posts.*.label', TokenType::COLLECTION);
 
         $reportResult = (new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_REPORT)))
             ->sanitize([$label], $token);
@@ -301,7 +331,7 @@ describe('OutputSanitizer → atomic object mode gating (report changes nothing)
 
     it('reports the projection type change in report mode, and the effective normalisation in enforce mode', function () {
         $date = Carbon::parse('2026-07-31 09:00:00');
-        $token = sanitizerTestToken('User.posts.published_at', TokenType::COLLECTION);
+        $token = sanitizerTestToken('User.posts.*.published_at', TokenType::COLLECTION);
 
         $reportedInReport = [];
         $reportValidator = new SecurityValidator(
@@ -338,7 +368,7 @@ describe('OutputSanitizer → atomic object mode gating (report changes nothing)
     });
 
     it('reports nothing for a projection of pure scalars, enums, or an empty list', function () {
-        $token = sanitizerTestToken('User.posts.title', TokenType::COLLECTION);
+        $token = sanitizerTestToken('User.posts.*.title', TokenType::COLLECTION);
 
         foreach ([[], ['First Post', 'Second Post'], [TokenType::MODEL, TokenType::TABLE]] as $list) {
             $reported = [];
@@ -357,7 +387,7 @@ describe('OutputSanitizer → atomic object mode gating (report changes nothing)
 
     it('emits exactly ONE warning for a projection, grouped per token, not once per normalised element', function () {
         $dates = [Carbon::parse('2026-01-01'), Carbon::parse('2026-02-01'), Carbon::parse('2026-03-01')];
-        $token = sanitizerTestToken('User.posts.published_at', TokenType::COLLECTION);
+        $token = sanitizerTestToken('User.posts.*.published_at', TokenType::COLLECTION);
 
         $reportedInReport = [];
         $reportValidator = new SecurityValidator(
@@ -917,7 +947,7 @@ describe('OutputSanitizer → scalar projections', function () {
     it('allows an empty list', function () {
         $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
 
-        $result = $sanitizer->sanitize([], sanitizerTestToken('User.posts.title', TokenType::COLLECTION));
+        $result = $sanitizer->sanitize([], sanitizerTestToken('User.posts.*.title', TokenType::COLLECTION));
 
         expect($result->blocked)->toBeFalse();
         expect($result->value)->toBe([]);
@@ -929,7 +959,7 @@ describe('OutputSanitizer → scalar projections', function () {
 
         $result = $sanitizer->sanitize(
             [1, 'two', 3.0, true, null],
-            sanitizerTestToken('User.posts.value', TokenType::COLLECTION)
+            sanitizerTestToken('User.posts.*.value', TokenType::COLLECTION)
         );
 
         expect($result->blocked)->toBeFalse();
@@ -937,17 +967,20 @@ describe('OutputSanitizer → scalar projections', function () {
         expect($result->text)->toBe('1, two, 3, true, ');
     });
 
-    it('normalises Stringable elements to strings, never keeping the raw object', function () {
+    it('normalises trusted Stringable elements to strings, never keeping the raw object', function () {
+        // Trusted atomics only: a Carbon (DateTimeInterface) and a marked
+        // class. An unmarked Stringable element is a container since the
+        // trust fix and disqualifies the projection altogether.
         $sanitizer = new OutputSanitizer(new SecurityValidator(mode: SecurityValidator::MODE_ENFORCE));
 
-        $a = new class implements Stringable
+        $a = new class implements SafeForTemplateSerialization, Stringable
         {
             public function __toString(): string
             {
                 return 'alpha';
             }
         };
-        $b = new class implements Stringable
+        $b = new class implements SafeForTemplateSerialization, Stringable
         {
             public function __toString(): string
             {
@@ -955,7 +988,7 @@ describe('OutputSanitizer → scalar projections', function () {
             }
         };
 
-        $result = $sanitizer->sanitize([$a, $b], sanitizerTestToken('User.posts.label', TokenType::COLLECTION));
+        $result = $sanitizer->sanitize([$a, $b], sanitizerTestToken('User.posts.*.label', TokenType::COLLECTION));
 
         expect($result->blocked)->toBeFalse();
         expect($result->value)->toBe(['alpha', 'beta']);

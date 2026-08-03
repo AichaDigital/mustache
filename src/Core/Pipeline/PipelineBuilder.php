@@ -16,6 +16,11 @@ use AichaDigital\MustacheResolver\Resolvers\VariableResolver;
 
 /**
  * Builder for creating configured resolution pipelines.
+ *
+ * The pipeline it builds is a RAW collaborator (ResolutionPipeline is
+ * marked internal): its resolve() applies no security policy. Assemble one
+ * to feed MustacheResolver or UseVariableResolver, not to resolve tokens
+ * directly.
  */
 final class PipelineBuilder
 {

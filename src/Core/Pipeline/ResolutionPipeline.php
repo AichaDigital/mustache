@@ -11,6 +11,17 @@ use AichaDigital\MustacheResolver\Exceptions\UnresolvableException;
 
 /**
  * Orchestrates the resolution of tokens through a chain of resolvers.
+ *
+ * @internal Raw collaborator: resolve() returns the UNSANITIZED value a
+ *     resolver produced — barrier 2 (OutputSanitizer) lives DOWNSTREAM, in
+ *     MustacheResolver::translate() and UseVariableResolver::resolve(),
+ *     which are the supported entry points. Calling resolve() directly
+ *     bypasses the security policy by construction; code that assembles a
+ *     pipeline and invokes it is trusted code per the threat model
+ *     (spec §11.3), the same trust already extended to consumer-registered
+ *     resolvers. Adjudicated for v3.0.0 (owner decision, 2026-08-03):
+ *     declared raw/internal rather than wrapped, because sanitizing here
+ *     would double-sanitize every translate() call.
  */
 final class ResolutionPipeline
 {

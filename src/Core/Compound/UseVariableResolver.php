@@ -29,7 +29,7 @@ final class UseVariableResolver
 
     private readonly OutputSanitizer $sanitizer;
 
-    private readonly ?SecurityValidator $validator;
+    private readonly SecurityValidator $validator;
 
     public function __construct(
         private readonly ResolutionPipeline $pipeline,
@@ -38,7 +38,11 @@ final class UseVariableResolver
     ) {
         $this->conditionEvaluator = new ConditionEvaluator;
         // §11.2: null means the default policy, here too — this class is the
-        // one public exit that bypassed barrier 2 in phase 1.
+        // one public exit that bypassed barrier 2 in phase 1. The sanitizer
+        // itself applies the same rule to its own missing validator, so
+        // getValidator() below can never be null: an explicitly-supplied
+        // `new OutputSanitizer()` used to read as OFF here, silently
+        // skipping barrier 1 and unbounding the parser at once.
         $this->sanitizer = $sanitizer ?? new OutputSanitizer(SecurityValidator::defaultPolicy());
         $this->validator = $this->sanitizer->getValidator();
         $this->parser = $parser ?? self::parserFor($this->validator);
@@ -53,16 +57,16 @@ final class UseVariableResolver
      * SecurityException out of a long USE expression, thrown raw from
      * parse() where the only catch below is for UnresolvableException.
      * Limits are an enforce-only control, exactly as the service provider
-     * wires them for the main parser; a null validator behaves like off,
-     * which is how OutputSanitizer::sanitize() already reads it.
+     * wires them for the main parser.
      *
-     * A caller that needs the CONFIGURED ceilings rather than the class
-     * defaults (the Laravel path, where security.limits is consumer
-     * configuration) injects its own parser instead.
+     * The class defaults, not the consumer's configured `security.limits`,
+     * are what apply here: the optional $parser constructor argument is the
+     * seam for configured ceilings, and no public compound entry point
+     * passes one yet (tracked as a phase-3 residual on the ticket).
      */
-    private static function parserFor(?SecurityValidator $validator): MustacheParser
+    private static function parserFor(SecurityValidator $validator): MustacheParser
     {
-        return $validator?->getMode() === SecurityValidator::MODE_ENFORCE
+        return $validator->getMode() === SecurityValidator::MODE_ENFORCE
             ? new MustacheParser
             : new MustacheParser(maxTemplateLength: null, maxTokens: null);
     }
@@ -83,9 +87,7 @@ final class UseVariableResolver
         // here too. Without it a NULL_COALESCE or DYNAMIC expression walked
         // an unvalidated accessor and the sanitizer below could not stand in
         // — neither token type carries a static path for it to re-check.
-        $context = $this->validator === null
-            ? $context
-            : ValidatingContext::wrap($context, $this->validator);
+        $context = ValidatingContext::wrap($context, $this->validator);
 
         // Parse the mustache expression to get tokens
         $tokens = $this->parser->parse($expression);

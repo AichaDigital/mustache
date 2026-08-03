@@ -65,10 +65,12 @@ describe('UseVariableResolver security (v3)', function () {
             ->toBe('fb');
     });
 
-    it('leaves the context alone when the sanitizer carries no validator at all', function () {
-        // OutputSanitizer accepts a null validator and reads it as "no
-        // checks" (see its sanitize() short-circuit); barrier 1 must agree
-        // rather than invent a policy the barrier beside it is not applying.
+    it('applies the default policy when the sanitizer was constructed without a validator (§11.2)', function () {
+        // The pre-tag gate reproduced this as a fail-open: a null validator
+        // used to read as "no checks", so an explicitly-supplied empty
+        // sanitizer skipped barrier 1 AND unbounded the parser. §11.2 says
+        // null means THE DEFAULT POLICY — the sanitizer now fills it in,
+        // and barrier 1 derives from the same instance.
         $resolver = new UseVariableResolver(
             PipelineBuilder::create()->build(),
             new OutputSanitizer(null),
@@ -76,7 +78,7 @@ describe('UseVariableResolver security (v3)', function () {
         $context = ResolutionContext::create(new ArrayAccessor(['password' => 'COMPOUND_SECRET']));
 
         expect($resolver->resolve(new UseVariable('v', "{{x.password ?? 'fb'}}"), $context))
-            ->toBe('COMPOUND_SECRET');
+            ->toBe('fb');
     });
 
     it('reaches that same value when the policy is explicitly off (fixture guard)', function () {

@@ -6,6 +6,7 @@ namespace AichaDigital\MustacheResolver\Core\Security;
 
 use AichaDigital\MustacheResolver\Contracts\SafeForTemplateSerialization;
 use AichaDigital\MustacheResolver\Contracts\TokenInterface;
+use AichaDigital\MustacheResolver\Core\Token\TokenType;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
 
@@ -28,25 +29,37 @@ use Illuminate\Database\Eloquent\Model;
  */
 final readonly class OutputSanitizer
 {
+    private SecurityValidator $validator;
+
     public function __construct(
-        private ?SecurityValidator $validator = null,
+        ?SecurityValidator $validator = null,
         private bool $allowContainerSerialization = false,
-    ) {}
+    ) {
+        // §11.2 applies HERE too: null stopped meaning "no policy" in v3 —
+        // it means THE DEFAULT POLICY. Reading a null validator as OFF made
+        // `new OutputSanitizer()` an opt-out nobody asked for, and the
+        // compound path amplified it: UseVariableResolver derives barrier 1
+        // and its parser ceilings from getValidator(), so one empty
+        // sanitizer disabled all three. Opting out requires an explicit
+        // mode: off validator.
+        $this->validator = $validator ?? SecurityValidator::defaultPolicy();
+    }
 
     /**
      * The policy this barrier applies, so a collaborator built alongside it
      * (Core\Compound\UseVariableResolver) derives its own mode-dependent
      * behaviour from the SAME validator instead of reading configuration a
-     * second time and drifting from it.
+     * second time and drifting from it. Never null: a sanitizer constructed
+     * without a validator carries the default policy (§11.2).
      */
-    public function getValidator(): ?SecurityValidator
+    public function getValidator(): SecurityValidator
     {
         return $this->validator;
     }
 
     public function sanitize(mixed $raw, TokenInterface $token): SanitizedValue
     {
-        if ($this->validator === null || $this->validator->getMode() === SecurityValidator::MODE_OFF) {
+        if ($this->validator->getMode() === SecurityValidator::MODE_OFF) {
             return new SanitizedValue($raw, $this->render($raw));
         }
 
@@ -88,13 +101,13 @@ final readonly class OutputSanitizer
         // array under a blacklist-checked key is still filtered as a
         // container, list-shaped or not.
         //
-        // Trade-off, deliberately not closed here: the sanitizer cannot
-        // prove each scalar actually came from the declared path — it
-        // only knows the shape of what it received. That guarantee rests
-        // on the package's own resolvers; a consumer-registered resolver
-        // is trusted code, the same limit already accepted for a resolver
-        // that returns a bare scalar under an innocuous token.
-        if ($this->isScalarProjection($raw)) {
+        // PROVENANCE, not just shape: only a wildcard COLLECTION token can
+        // claim the escape, because CollectionResolver's wildcard is the
+        // only producer of a projection inside the package. Keying on
+        // shape alone let {{user.items}} over ['SECRET_A', 'SECRET_B']
+        // clear the container gate — a scalar-list attribute IS a
+        // container dump, and the token in hand says so.
+        if ($this->isWildcardProjection($token) && $this->isScalarProjection($raw)) {
             return $this->sanitizeScalarProjection($raw, $token);
         }
 
@@ -161,19 +174,28 @@ final readonly class OutputSanitizer
      *
      * Order matters and is the whole point. PHP 8 makes every class with
      * __toString() implicitly Stringable, so Eloquent models and collections
-     * are Stringable — testing that first would classify the two types this
-     * barrier exists for as harmless scalars.
+     * are Stringable — testing trust before Arrayable/Traversable would
+     * classify the two types this barrier exists for as harmless scalars.
      *
-     *   array                     → container
-     *   non-object                → scalar
-     *   UnitEnum                  → scalar
-     *   Arrayable or Traversable  → container
-     *   Stringable                → atomic renderable
-     *   any remaining object      → container
+     *   array                       → container
+     *   non-object                  → scalar
+     *   UnitEnum                    → scalar
+     *   Arrayable or Traversable    → container
+     *   DateTimeInterface           → atomic renderable (Carbon and friends)
+     *   SafeForTemplateSerialization → atomic renderable (declared safe)
+     *   any remaining object        → container, Stringable or not
+     *
+     * Stringable alone is NOT trust: __toString() content is opaque, so an
+     * object that serialises itself through it (a __toString() returning
+     * json_encode(get_object_vars($this)) is one line) walked the whole
+     * container policy as an "atomic scalar". Atomicity is now granted by
+     * interface — DateTimeInterface, because a date's string form is its
+     * value; SafeForTemplateSerialization, because the class declared
+     * itself safe — never by the mere ability to become a string.
      *
      * JsonSerializable is deliberately absent: it is a conversion mechanism,
      * not evidence of being a container. Carbon implements it and is an
-     * atomic value.
+     * atomic value (via DateTimeInterface, not via Stringable).
      */
     private function isContainer(mixed $value): bool
     {
@@ -193,11 +215,25 @@ final readonly class OutputSanitizer
             return true;
         }
 
-        if ($value instanceof \Stringable) {
+        if ($value instanceof \DateTimeInterface || $value instanceof SafeForTemplateSerialization) {
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * Provenance gate for the projection escape: only CollectionResolver's
+     * wildcard produces a scalar-projection list inside the package, so
+     * only a COLLECTION token carrying a '*' segment may claim it. The
+     * remaining trade-off is unchanged and documented at the call site: a
+     * consumer-registered resolver returning a list under a wildcard
+     * COLLECTION token is trusted code, per the threat model.
+     */
+    private function isWildcardProjection(TokenInterface $token): bool
+    {
+        return $token->getType() === TokenType::COLLECTION
+            && in_array('*', $token->getPath(), true);
     }
 
     /**
@@ -299,7 +335,7 @@ final readonly class OutputSanitizer
             return new SanitizedValue($list, $text);
         }
 
-        if ($this->validator?->getMode() === SecurityValidator::MODE_ENFORCE) {
+        if ($this->validator->getMode() === SecurityValidator::MODE_ENFORCE) {
             $this->validator->reportViolation(
                 'mustache-resolver: atomic object normalized to string by security policy',
                 ['path' => $token->getRaw(), 'type' => 'projection'],
@@ -315,7 +351,7 @@ final readonly class OutputSanitizer
             return new SanitizedValue($normalised, $text);
         }
 
-        $this->validator?->reportViolation(
+        $this->validator->reportViolation(
             'mustache-resolver: atomic object would be normalized to string in enforce mode',
             ['path' => $token->getRaw(), 'type' => 'projection'],
         );
@@ -420,14 +456,14 @@ final readonly class OutputSanitizer
         $array = $this->toArray($raw);
 
         if ($array === null) {
-            $this->validator?->reportViolation(
+            $this->validator->reportViolation(
                 $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
                     ? 'mustache-resolver: container could not be converted safely, blocked'
                     : 'mustache-resolver: container could not be converted safely, would be blocked in enforce mode',
                 ['path' => $token->getRaw(), 'type' => get_debug_type($raw)],
             );
 
-            if ($this->validator?->getMode() === SecurityValidator::MODE_ENFORCE) {
+            if ($this->validator->getMode() === SecurityValidator::MODE_ENFORCE) {
                 return SanitizedValue::blocked();
             }
 
@@ -468,7 +504,7 @@ final readonly class OutputSanitizer
         }
 
         if ($found !== []) {
-            $this->validator?->reportViolation(
+            $this->validator->reportViolation(
                 $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
                     ? 'mustache-resolver: blacklisted attributes stripped from serialized container'
                     : 'mustache-resolver: container contains blacklisted attribute(s), they would be filtered in enforce mode',
@@ -477,7 +513,7 @@ final readonly class OutputSanitizer
         }
 
         if ($depthPruned) {
-            $this->validator?->reportViolation(
+            $this->validator->reportViolation(
                 $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
                     ? 'mustache-resolver: serialized content pruned at max_depth'
                     : 'mustache-resolver: serialized content would be pruned at max_depth in enforce mode',
@@ -486,7 +522,7 @@ final readonly class OutputSanitizer
         }
 
         if ($cycleCut) {
-            $this->validator?->reportViolation(
+            $this->validator->reportViolation(
                 $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
                     ? 'mustache-resolver: cyclic reference cut from serialized content'
                     : 'mustache-resolver: cyclic reference would be cut from serialized content in enforce mode',
@@ -495,7 +531,7 @@ final readonly class OutputSanitizer
         }
 
         if ($conversionFailed) {
-            $this->validator?->reportViolation(
+            $this->validator->reportViolation(
                 $this->validator->getMode() === SecurityValidator::MODE_ENFORCE
                     ? 'mustache-resolver: nested value could not be converted safely, dropped'
                     : 'mustache-resolver: nested value could not be converted safely, would be dropped in enforce mode',
@@ -509,7 +545,7 @@ final readonly class OutputSanitizer
         // which render() reproduces), or report mode stops being a safe
         // pre-upgrade measuring tool and starts changing template output
         // on its own.
-        if ($this->validator?->getMode() === SecurityValidator::MODE_REPORT) {
+        if ($this->validator->getMode() === SecurityValidator::MODE_REPORT) {
             return new SanitizedValue($raw, $this->render($raw));
         }
 
@@ -663,7 +699,7 @@ final readonly class OutputSanitizer
         $seen ??= new \SplObjectStorage;
 
         foreach ($data as $key => $value) {
-            if (is_string($key) && $this->validator?->isAttributeBlacklisted($key)) {
+            if (is_string($key) && $this->validator->isAttributeBlacklisted($key)) {
                 $found[] = $key;
                 unset($data[$key]);
 
@@ -703,7 +739,7 @@ final readonly class OutputSanitizer
                 }
 
                 if (is_array($value)) {
-                    if ($this->validator?->isDepthExceeded($depth + 2) === true) {
+                    if ($this->validator->isDepthExceeded($depth + 2) === true) {
                         $data[$key] = [];
                         $depthPruned = true;
 

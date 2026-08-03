@@ -54,6 +54,15 @@ final readonly class SecurityValidator
     ];
 
     /**
+     * The constructor defaults ARE the default policy. `new SecurityValidator`
+     * used to report `enforce` while carrying empty blacklists — an instance
+     * that says it enforces and blocks nothing, which MustacheResolver then
+     * trusted like any other non-null validator. An absent argument now means
+     * the DEFAULT_* lists; an explicit `[]` remains the deliberate opt-out
+     * (the argument was provided, so nothing second-guesses it).
+     * allowedRootModels stays empty by design: the whitelist is opt-in
+     * hardening, not part of the default policy.
+     *
      * @param  array<string>  $allowedRootModels
      * @param  array<string>  $blacklistedAttributes
      * @param  array<string>  $blacklistedPatterns
@@ -61,8 +70,8 @@ final readonly class SecurityValidator
      */
     public function __construct(
         private array $allowedRootModels = [],
-        private array $blacklistedAttributes = [],
-        private array $blacklistedPatterns = [],
+        private array $blacklistedAttributes = self::DEFAULT_BLACKLISTED_ATTRIBUTES,
+        private array $blacklistedPatterns = self::DEFAULT_BLACKLISTED_PATTERNS,
         private int $maxDepth = 10,
         private string $mode = self::MODE_ENFORCE,
         private ?Closure $reporter = null,

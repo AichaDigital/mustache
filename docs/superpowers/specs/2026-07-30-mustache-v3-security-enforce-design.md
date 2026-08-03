@@ -243,7 +243,7 @@ Public API, so it is fixed here and documented as a break:
 - **Authorised container:** `getResolvedValues()` receives the **sanitised** value, so a filtered model arrives as a filtered array, not as a `Model`. The rendered text keeps today's string behaviour, `escapeWhenCastingToString()` included.
 - **`max_depth`** counts from the context root: token depth plus depth inside the serialised content. The limit measures how deep data is exposed, wherever the depth comes from.
 - **Exceeding depth prunes the offending branch**, not the whole container, and reports.
-- **Types:** `Stringable` and enums resolve as scalars. `Arrayable`, `JsonSerializable` and `Traversable` are containers, blocked by default.
+- **Types:** enums, `DateTimeInterface` (Carbon and friends) and classes marked `SafeForTemplateSerialization` resolve as scalars. `Arrayable`, `JsonSerializable` and `Traversable` are containers, blocked by default — and so is every other object, `Stringable` included. *(Amended 2026-08-03, pre-tag gate fail-open #2: the original bullet read "`Stringable` and enums resolve as scalars", which let any object serialise itself past the container policy through an opaque `__toString()` — atomicity is granted by interface, never by the mere ability to become a string.)*
 - **Cycles** are detected with `SplObjectStorage`; a revisited node is cut and reported.
 - **`toArray()` throwing, or returning another object,** is treated as a blocked container and reported. Never as an empty success.
 
