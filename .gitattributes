@@ -18,3 +18,9 @@
 /UPGRADING.md       export-ignore
 /phpstan.neon.dist  export-ignore
 /phpstan-baseline.neon  export-ignore
+/.gitlab-ci.yml     export-ignore
+/CLAUDE.md          export-ignore
+/infection.json5    export-ignore
+/renovate.json      export-ignore
+# UPGRADE-3.md is deliberately NOT export-ignored: the boot warning and the
+# published config comment point consumers at it, so it must ship in the dist.
