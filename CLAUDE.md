@@ -194,6 +194,15 @@ composer format && composer analyse && composer test
 
 ## Lecciones aprendidas
 
+### 2026-08-03 — v3.0.0 publicada: estado del paquete y lo que queda vivo
+**Contexto:** cierre de AID-733 — tag `v3.0.0` sobre `b19aff1` (candidato aprobado `1aca3db` + estampado documental), `main` ES la línea 3 desde entonces, rama `2.x` de mantenimiento cortada en `765bd63` (EOL 2027-02-03; parches por severidad alta o cualquier severidad si el vector es exposición de datos vía plantillas). Gobierno: contrato `products/mustache.md` (revisión 2) + `products/sitelight.md` + registro `approvals/majors/mustache-3.md` en el workspace central. Gate de conformidad de sitelight: delta vacío, superficie mustache verde bajo enforce.
+**Reglas operativas vigentes:**
+- El comportamiento por defecto es `enforce` con la default policy también en standalone (§11.2: null = default policy, nunca «sin política»). Cualquier test o doc nuevo que asuma «report por defecto» está describiendo v2.
+- `UPGRADE-3.md` viaja en el dist y lo referencian el boot warning y el config publicado — NO añadirlo a export-ignore jamás.
+- Ledger de menores pendientes para 3.0.x/3.1 (detalle en el cierre de AID-733): canonicalizar el modo en el constructor de `SecurityValidator` (radio standalone), gemelos off que faltan en `PublicSurfaceBypassTest` (colección end-to-end, semántica AND, `get()` directo del contexto), hoist del wrap en `UseVariableResolver::resolveAll()`, techo agregado de tokens del compound (P2 advisory del gate Codex).
+- **Conflicto de normas SIN adjudicar:** este fichero prohíbe el trailer `Co-Authored-By: Claude` y la norma global exige atribución real por commit. En `3.x`→`main` conviven `ee0c284` (con trailer) y el resto (sin él). Hasta que el propietario adjudique, los commits de ESTE repo siguen la regla local (sin trailer).
+- Ningún proyecto consumidor lanza agentes que trabajen sobre mustache (orden del propietario, 2026-08-03); el gate de conformidad se corre desde aquí con worktree desechable del consumidor.
+
 ### 2026-07-23 — Config documentada sin consumidor no es seguridad (AID-632)
 **Contexto:** paquete `aichadigital/laravel-mustache-resolver`, auditoría de seguridad sobre v2.0.0
 **Problema:** `SecurityValidator` correcto y bien testeado, pero nada lo invocaba: el ServiceProvider no leía `config('mustache-resolver.security')`, la blacklist solo miraba el primer segmento del path y `max_depth` era un control muerto.
@@ -218,4 +227,4 @@ composer format && composer analyse && composer test
 
 ---
 
-*Last updated: 2025-12-08*
+*Last updated: 2026-08-03 (v3.0.0 released)*
