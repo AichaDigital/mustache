@@ -67,6 +67,45 @@ manifest:
   script:
     - composer validate --strict --no-interaction
 
+# `composer audit` como VISIBILIDAD TEMPRANA, no como gate (AID-823). Antes de
+# esto el pipeline podía estar verde y no decir absolutamente nada sobre un CVE.
+#
+# `allow_failure` deliberado, y no por blandura: los advisories que aparecerán
+# aquí llegan heredados de `laravel/framework`, no elegidos por este paquete.
+# Quien abra un MR no los ha introducido y no debe quedarse con el merge
+# secuestrado por ellos.
+#
+# ANTES DE «ENDURECERLO» quitando el `allow_failure`, o de partirlo en dos jobs
+# por dev/consumidor, leer esto — está medido, no supuesto (AID-823):
+#
+#   - `--no-dev` NO separa nada en este repo. `laravel/framework` *replaces*
+#     `illuminate/support`, que sí requerimos en runtime, así que satisface ese
+#     require y arrastra Guzzle al lado runtime del lock. Resuelto con `--no-dev`
+#     el árbol sigue trayendo el framework entero (73 paquetes, Guzzle incluido).
+#     La partición «lo que recibe el consumidor» vs «mi entorno» no existe aquí.
+#   - No hace falta que este job duplique un gate que ya existe aguas arriba:
+#     Composer 2.10 se niega a resolver a una versión con advisory activo
+#     (`policy.advisories.block`, por defecto). Un CVE con parche alcanzable se
+#     corrige solo en el `composer update`; uno sin parche revienta ese update.
+#     Lo que queda para este job es lo que la política no bloquea —paquetes
+#     abandonados— y el día que alguien la apague.
+#
+# El riesgo asumido es que un warning acabe ignorándose. Eso no se arregla dentro
+# del MR: pide un control periódico del umbrella que convierta los advisories
+# persistentes en trabajo asignado.
+audit:
+  stage: quality
+  image: aichadigital/laravel-ci:8.3
+  variables:
+    PHP_VERSION: "8.3"
+  extends: .php
+  allow_failure: true
+  script:
+    # La versión no es adorno: por debajo de 2.10 no hay política de bloqueo y
+    # este job pasa de complemento a ser el único aviso que existe.
+    - composer --version
+    - composer audit --no-interaction --no-ansi
+
 pint:
   stage: quality
   image: aichadigital/laravel-ci:8.3
@@ -93,6 +132,14 @@ phpstan:
 pest:
   stage: test
   image: aichadigital/laravel-ci:$PHP_VERSION
+  # `needs: []` (AID-823): la matriz arranca sin esperar al stage `quality`.
+  # Con `audit` en `allow_failure` ya no es él quien podría dejar los tests en
+  # `skipped`, pero `pint` y `phpstan` sí abortan el stage siguiente, y el
+  # principio se mantiene: un job de calidad en rojo no debe ocultar el resultado
+  # de los tests. Verificado con un advisory plantado a propósito (pipeline
+  # #6938): `audit` en rojo y esta matriz ejecutándose entera. Efecto colateral
+  # asumido a cambio: un fallo de `pint` o `phpstan` ya no aborta estos 5 jobs.
+  needs: []
   parallel:
     matrix:
       # Laravel 12 admite 8.2; Laravel 13 no — de ahí el exclude del original,
@@ -128,6 +175,9 @@ coverage:
   variables:
     PHP_VERSION: "8.3"
   extends: .php
+  # Mismo motivo que en `pest`: la cobertura tampoco debe quedar en `skipped`
+  # por un CVE en una dependencia que este MR no ha tocado.
+  needs: []
   script:
     - echo 'pcov.enabled=1' > /usr/local/etc/php/conf.d/zz-pcov-on.ini
     - |
